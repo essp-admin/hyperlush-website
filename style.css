@@ -1,0 +1,121 @@
+/* COLORS */
+:root {
+    --blue: #0a00db;
+    --white: #f8fdee;
+}
+
+/* RESET */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background: var(--blue);
+    color: var(--white);
+    font-family: "DM Mono", monospace;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+}
+
+/* OUTER BOX */
+.outer-box {
+    width: 420px;
+    max-width: 90%;
+    border: 1px solid var(--white);
+}
+
+/* TOP BOX */
+.top-box {
+    border-bottom: 1px solid var(--white);
+    padding: 60px 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.logo {
+    width: 100px;
+}
+
+/* BOTTOM BOX */
+.bottom-box {
+    padding: 50px 60px;
+    text-align: center;
+}
+
+/* LINKS */
+.links {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    margin-bottom: 45px;
+}
+
+.links a {
+    text-decoration: none;
+    color: var(--white);
+    font-size: 14px;
+    letter-spacing: 1px;
+}
+
+/* DASHED */
+.dashed {
+    border-bottom: 1px dashed var(--white);
+    margin: 30px -60px; /* llega al borde sin tocar nada */
+}
+
+/* CONTACT */
+.contact p {
+    font-size: 13px;
+    margin: 10px 0;
+}
+
+/* COPYRIGHT — AJUSTE ÚNICO */
+.copyright {
+    font-size: 13px;
+    margin-top: 55px; /* centrado entre la dashed y el borde inferior */
+}
+
+/* MOBILE */
+@media (max-width: 600px) {
+    .top-box {
+        padding: 40px 0;
+    }
+
+    .logo {
+        width: 80px;
+    }
+
+    .bottom-box {
+        padding: 40px 30px;
+    }
+
+    .links {
+        gap: 18px;
+        margin-bottom: 35px;
+    }
+
+    .links a {
+        font-size: 13px;
+    }
+
+    .contact p {
+        font-size: 12px;
+    }
+
+    /* COPYRIGHT móvil */
+    .copyright {
+        font-size: 12px;
+        margin-top: 45px;
+    }
+
+    /* DASHED móvil */
+    .dashed {
+        margin: 25px -30px;
+    }
+}
+
