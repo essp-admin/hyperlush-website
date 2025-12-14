@@ -8,32 +8,21 @@
     <style>
         body {
             margin: 0;
-            background: #0a00db; /* azul Hyperlush */
+            background: #0a00db;
             overflow: hidden;
         }
 
         canvas {
             display: block;
         }
-
-        .hint {
-            position: fixed;
-            bottom: 20px;
-            width: 100%;
-            text-align: center;
-            font-family: "DM Mono", monospace;
-            color: white;
-            opacity: 0.5;
-            font-size: 14px;
-        }
     </style>
 </head>
 
 <body>
 <canvas id="rain"></canvas>
-<div class="hint">tap to enter</div>
 
 <script>
+// CANVAS SETUP
 const canvas = document.getElementById("rain");
 const ctx = canvas.getContext("2d");
 
@@ -44,41 +33,92 @@ function resize() {
 resize();
 window.addEventListener("resize", resize);
 
-// parámetros de la lluvia
-const drops = [];
-const dropCount = 300;
+// RAIN PARTICLES
+const particles = [];
+const totalParticles = 400;
 
-for (let i = 0; i < dropCount; i++) {
-    drops.push({
+for (let i = 0; i < totalParticles; i++) {
+    particles.push({
         x: Math.random() * canvas.width,
         y: Math.random() * canvas.height,
-        speed: 2 + Math.random() * 5,
-        length: 10 + Math.random() * 20
+        speed: 2 + Math.random() * 4,
+        length: 10 + Math.random() * 20,
+        target: null
     });
 }
 
-function animate() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#ffffff";
+// SIMPLE LOGO (THREE BARS)
+const logoBars = [];
+const barWidth = 8;
+const barHeight = 80;
+const barSpacing = 20;
 
-    drops.forEach(d => {
-        ctx.fillRect(d.x, d.y, 2, d.length);
-        d.y += d.speed;
-        if (d.y > canvas.height) {
-            d.y = -20;
-            d.x = Math.random() * canvas.width;
+// Centered positions
+const centerX = () => canvas.width / 2;
+const centerY = () => canvas.height / 2;
+
+function updateLogoPositions() {
+    logoBars.length = 0;
+
+    const startX = centerX() - barWidth - barSpacing;
+    const startY = centerY() - barHeight / 2;
+
+    // Left bar
+    logoBars.push({ x: startX, y: startY });
+
+    // Middle bar
+    logoBars.push({ x: centerX() - barWidth / 2, y: startY });
+
+    // Right bar
+    logoBars.push({ x: centerX() + barWidth + barSpacing - barWidth, y: startY });
+}
+
+updateLogoPositions();
+window.addEventListener("resize", updateLogoPositions);
+
+// ASSIGN TARGET PARTICLES
+const targetParticles = particles.slice(0, logoBars.length);
+
+targetParticles.forEach((p, i) => {
+    p.target = logoBars[i];
+});
+
+// ANIMATION LOOP
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    particles.forEach(p => {
+        // PARTICLE HAS TARGET → MOVE TOWARD LOGO POSITION
+        if (p.target) {
+            p.x += (p.target.x - p.x) * 0.02;
+            p.y += (p.target.y - p.y) * 0.02;
+
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(p.x, p.y, barWidth, barHeight);
+        } else {
+            // NORMAL RAIN PARTICLES
+            p.y += p.speed;
+
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(p.x, p.y, 2, p.length);
+
+            if (p.y > canvas.height) {
+                p.y = -20;
+                p.x = Math.random() * canvas.width;
+            }
         }
     });
 
-    requestAnimationFrame(animate);
+    requestAnimationFrame(draw);
 }
 
-animate();
+draw();
 
-// clic para ir a la home
+// CLICK → GO HOME
 document.body.addEventListener("click", () => {
     window.location.href = "index.html";
 });
 </script>
+
 </body>
 </html>
