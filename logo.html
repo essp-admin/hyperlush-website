@@ -8,7 +8,7 @@
     <style>
         body {
             margin: 0;
-            background: #0a00db;
+            background: #0a00db; /* azul Hyperlush */
             overflow: hidden;
         }
 
@@ -17,25 +17,25 @@
         }
     </style>
 </head>
-
 <body>
+
 <canvas id="rain"></canvas>
 
 <script>
-// CANVAS SETUP
 const canvas = document.getElementById("rain");
 const ctx = canvas.getContext("2d");
 
 function resize() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
+    updateLogoRects();
 }
 resize();
 window.addEventListener("resize", resize);
 
-// RAIN PARTICLES
+// Partículas lluvia
 const particles = [];
-const totalParticles = 400;
+const totalParticles = 450;
 
 for (let i = 0; i < totalParticles; i++) {
     particles.push({
@@ -43,82 +43,62 @@ for (let i = 0; i < totalParticles; i++) {
         y: Math.random() * canvas.height,
         speed: 2 + Math.random() * 4,
         length: 10 + Math.random() * 20,
-        target: null
+        targetRect: null
     });
 }
 
-// SIMPLE LOGO (THREE BARS)
-const logoBars = [];
-const barWidth = 8;
-const barHeight = 80;
-const barSpacing = 20;
+// ==== LOGO HYPERLUSH (5 pastillas) ====
+const logoRects = [];
 
-// Centered positions
-const centerX = () => canvas.width / 2;
-const centerY = () => canvas.height / 2;
+function updateLogoRects() {
+    logoRects.length = 0;
 
-function updateLogoPositions() {
-    logoBars.length = 0;
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
 
-    const startX = centerX() - barWidth - barSpacing;
-    const startY = centerY() - barHeight / 2;
+    const blockW = 50; // ancho de pastilla
+    const blockH = 12; // altura
+    const hGap = 40;   // separación horizontal
+    const vGap = 22;   // separación vertical
 
-    // Left bar
-    logoBars.push({ x: startX, y: startY });
+    const topY = cy - blockH - vGap;
+    const centerY = cy - blockH / 2;
+    const bottomY = cy + vGap;
 
-    // Middle bar
-    logoBars.push({ x: centerX() - barWidth / 2, y: startY });
+    const leftX  = cx - (blockW + hGap / 2);
+    const rightX = cx + hGap / 2;
 
-    // Right bar
-    logoBars.push({ x: centerX() + barWidth + barSpacing - barWidth, y: startY });
+    // Pastillas superiores
+    logoRects.push({ x: leftX,  y: topY,    w: blockW, h: blockH });
+    logoRects.push({ x: rightX, y: topY,    w: blockW, h: blockH });
+
+    // Pastilla central (una sola)
+    logoRects.push({ 
+        x: cx - blockW / 2,
+        y: centerY,
+        w: blockW,
+        h: blockH
+    });
+
+    // Pastillas inferiores
+    logoRects.push({ x: leftX,  y: bottomY, w: blockW, h: blockH });
+    logoRects.push({ x: rightX, y: bottomY, w: blockW, h: blockH });
 }
 
-updateLogoPositions();
-window.addEventListener("resize", updateLogoPositions);
+// Inicializar rectángulos del logo
+updateLogoRects();
 
-// ASSIGN TARGET PARTICLES
-const targetParticles = particles.slice(0, logoBars.length);
-
+// Asignar 5 partículas a los 5 rectángulos
+const targetParticles = particles.slice(0, logoRects.length);
 targetParticles.forEach((p, i) => {
-    p.target = logoBars[i];
+    p.targetRect = logoRects[i];
 });
 
-// ANIMATION LOOP
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     particles.forEach(p => {
-        // PARTICLE HAS TARGET → MOVE TOWARD LOGO POSITION
-        if (p.target) {
-            p.x += (p.target.x - p.x) * 0.02;
-            p.y += (p.target.y - p.y) * 0.02;
+        if (p.targetRect) {
+            // Moverse al rectángulo
+            const t = p.targetRe
 
-            ctx.fillStyle = "#ffffff";
-            ctx.fillRect(p.x, p.y, barWidth, barHeight);
-        } else {
-            // NORMAL RAIN PARTICLES
-            p.y += p.speed;
-
-            ctx.fillStyle = "#ffffff";
-            ctx.fillRect(p.x, p.y, 2, p.length);
-
-            if (p.y > canvas.height) {
-                p.y = -20;
-                p.x = Math.random() * canvas.width;
-            }
-        }
-    });
-
-    requestAnimationFrame(draw);
-}
-
-draw();
-
-// CLICK → GO HOME
-document.body.addEventListener("click", () => {
-    window.location.href = "index.html";
-});
-</script>
-
-</body>
-</html>
