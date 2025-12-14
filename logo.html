@@ -15,11 +15,23 @@
         canvas {
             display: block;
         }
+
+        .hint {
+            position: fixed;
+            bottom: 20px;
+            width: 100%;
+            text-align: center;
+            font-family: "DM Mono", monospace;
+            color: white;
+            opacity: 0.5;
+            font-size: 14px;
+        }
     </style>
 </head>
-<body>
 
+<body>
 <canvas id="rain"></canvas>
+<div class="hint">tap to enter</div>
 
 <script>
 const canvas = document.getElementById("rain");
@@ -28,77 +40,45 @@ const ctx = canvas.getContext("2d");
 function resize() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
-    updateLogoRects();
 }
 resize();
 window.addEventListener("resize", resize);
 
-// Partículas lluvia
-const particles = [];
-const totalParticles = 450;
+// parámetros de la lluvia
+const drops = [];
+const dropCount = 300;
 
-for (let i = 0; i < totalParticles; i++) {
-    particles.push({
+for (let i = 0; i < dropCount; i++) {
+    drops.push({
         x: Math.random() * canvas.width,
         y: Math.random() * canvas.height,
-        speed: 2 + Math.random() * 4,
-        length: 10 + Math.random() * 20,
-        targetRect: null
+        speed: 2 + Math.random() * 5,
+        length: 10 + Math.random() * 20
     });
 }
 
-// ==== LOGO HYPERLUSH (5 pastillas) ====
-const logoRects = [];
-
-function updateLogoRects() {
-    logoRects.length = 0;
-
-    const cx = canvas.width / 2;
-    const cy = canvas.height / 2;
-
-    const blockW = 50; // ancho de pastilla
-    const blockH = 12; // altura
-    const hGap = 40;   // separación horizontal
-    const vGap = 22;   // separación vertical
-
-    const topY = cy - blockH - vGap;
-    const centerY = cy - blockH / 2;
-    const bottomY = cy + vGap;
-
-    const leftX  = cx - (blockW + hGap / 2);
-    const rightX = cx + hGap / 2;
-
-    // Pastillas superiores
-    logoRects.push({ x: leftX,  y: topY,    w: blockW, h: blockH });
-    logoRects.push({ x: rightX, y: topY,    w: blockW, h: blockH });
-
-    // Pastilla central (una sola)
-    logoRects.push({ 
-        x: cx - blockW / 2,
-        y: centerY,
-        w: blockW,
-        h: blockH
-    });
-
-    // Pastillas inferiores
-    logoRects.push({ x: leftX,  y: bottomY, w: blockW, h: blockH });
-    logoRects.push({ x: rightX, y: bottomY, w: blockW, h: blockH });
-}
-
-// Inicializar rectángulos del logo
-updateLogoRects();
-
-// Asignar 5 partículas a los 5 rectángulos
-const targetParticles = particles.slice(0, logoRects.length);
-targetParticles.forEach((p, i) => {
-    p.targetRect = logoRects[i];
-});
-
-function draw() {
+function animate() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#ffffff";
 
-    particles.forEach(p => {
-        if (p.targetRect) {
-            // Moverse al rectángulo
-            const t = p.targetRe
+    drops.forEach(d => {
+        ctx.fillRect(d.x, d.y, 2, d.length);
+        d.y += d.speed;
+        if (d.y > canvas.height) {
+            d.y = -20;
+            d.x = Math.random() * canvas.width;
+        }
+    });
 
+    requestAnimationFrame(animate);
+}
+
+animate();
+
+// clic para ir a la home
+document.body.addEventListener("click", () => {
+    window.location.href = "index.html";
+});
+</script>
+</body>
+</html>
