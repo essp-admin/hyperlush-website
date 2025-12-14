@@ -8,7 +8,7 @@
     <style>
         body {
             margin: 0;
-            background: #0a00db;
+            background: #0a00db; /* azul Hyperlush */
             overflow: hidden;
         }
 
@@ -25,112 +25,33 @@
 const canvas = document.getElementById("rain");
 const ctx = canvas.getContext("2d");
 
-// -----------------------
-// Ajustar tamaño canvas
-// -----------------------
+// Ajustar tamaño del canvas
 function resizeCanvas() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
 }
 resizeCanvas();
-window.addEventListener("resize", () => {
-    resizeCanvas();
-    generateLogoRects();
-});
+window.addEventListener("resize", resizeCanvas);
 
-// -----------------------
-// Lluvia de partículas
-// -----------------------
+// Lluvia
 const particles = [];
-const totalParticles = 400;
+const totalParticles = 500;
 
 for (let i = 0; i < totalParticles; i++) {
     particles.push({
         x: Math.random() * window.innerWidth,
         y: Math.random() * window.innerHeight,
-        speed: 2 + Math.random() * 4,
-        length: 8 + Math.random() * 18,
-        target: null
+        speed: 3 + Math.random() * 5,
+        length: 8 + Math.random() * 12  // ← gotas más cortas
     });
 }
 
-// ------------------------------------------------------
-// LOGO: 5 pastillas exactas del logotipo Hyperlush
-// ------------------------------------------------------
-let logoRects = [];
-
-function generateLogoRects() {
-    logoRects = [];
-
-    const cx = canvas.width / 2;
-    const cy = canvas.height / 2;
-
-    const blockW = 90;
-    const blockH = 18;
-    const hGap = 60;
-    const vGap = 35;
-
-    const topY = cy - blockH - vGap;
-    const centerY = cy - blockH / 2;
-    const bottomY = cy + vGap;
-
-    const leftX = cx - (blockW + hGap / 2);
-    const rightX = cx + hGap / 2;
-
-    logoRects.push({ x: leftX,  y: topY,    w: blockW, h: blockH });
-    logoRects.push({ x: rightX, y: topY,    w: blockW, h: blockH });
-    logoRects.push({ x: cx - blockW / 2, y: centerY, w: blockW, h: blockH });
-    logoRects.push({ x: leftX,  y: bottomY, w: blockW, h: blockH });
-    logoRects.push({ x: rightX, y: bottomY, w: blockW, h: blockH });
-}
-
-generateLogoRects();
-
-// Asignar 5 partículas para formar las 5 pastillas
-particles.slice(0, 5).forEach((p, i) => {
-    p.target = logoRects[i];
-});
-
-// -----------------------
 // Animación principal
-// -----------------------
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    particles.forEach(p => {
-        if (p.target) {
-            const t = p.target;
-            const targetX = t.x + t.w / 2;
-            const targetY = t.y + t.h / 2;
+    ctx.fillStyle = "#ffffff";
 
-            p.x += (targetX - p.x) * 0.08;
-            p.y += (targetY - p.y) * 0.08;
+    partic
 
-            ctx.fillStyle = "#ffffff";
-            ctx.fillRect(t.x, t.y, t.w, t.h);
-        } else {
-            p.y += p.speed;
-            ctx.fillStyle = "#ffffff";
-            ctx.fillRect(p.x, p.y, 2, p.length);
-
-            if (p.y > canvas.height) {
-                p.y = -20;
-                p.x = Math.random() * canvas.width;
-            }
-        }
-    });
-
-    requestAnimationFrame(draw);
-}
-
-draw();
-
-// Click → home
-document.body.addEventListener("click", () => {
-    window.location.href = "index.html";
-});
-</script>
-
-</body>
-</html>
 
