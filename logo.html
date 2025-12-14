@@ -65,10 +65,10 @@ function generateLogoRects() {
     const cx = canvas.width / 2;
     const cy = canvas.height / 2;
 
-    const blockW = 90;  // ancho pastilla
-    const blockH = 18;  // altura
-    const hGap = 60;    // separación horizontal
-    const vGap = 35;    // separación vertical
+    const blockW = 90;
+    const blockH = 18;
+    const hGap = 60;
+    const vGap = 35;
 
     const topY = cy - blockH - vGap;
     const centerY = cy - blockH / 2;
@@ -77,7 +77,6 @@ function generateLogoRects() {
     const leftX = cx - (blockW + hGap / 2);
     const rightX = cx + hGap / 2;
 
-    // 5 pastillas del logo
     logoRects.push({ x: leftX,  y: topY,    w: blockW, h: blockH });
     logoRects.push({ x: rightX, y: topY,    w: blockW, h: blockH });
     logoRects.push({ x: cx - blockW / 2, y: centerY, w: blockW, h: blockH });
@@ -107,11 +106,9 @@ function draw() {
             p.x += (targetX - p.x) * 0.08;
             p.y += (targetY - p.y) * 0.08;
 
-            // Dibujar pastilla completa
             ctx.fillStyle = "#ffffff";
             ctx.fillRect(t.x, t.y, t.w, t.h);
         } else {
-            // Lluvia normal
             p.y += p.speed;
             ctx.fillStyle = "#ffffff";
             ctx.fillRect(p.x, p.y, 2, p.length);
@@ -136,3 +133,4 @@ document.body.addEventListener("click", () => {
 
 </body>
 </html>
+
