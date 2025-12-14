@@ -8,12 +8,14 @@
     <style>
         body {
             margin: 0;
-            background: #0a00db; /* azul Hyperlush */
+            background: #0a00db;
             overflow: hidden;
         }
 
         canvas {
-            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
         }
     </style>
 </head>
@@ -25,33 +27,55 @@
 const canvas = document.getElementById("rain");
 const ctx = canvas.getContext("2d");
 
-// Ajustar tamaño del canvas
-function resizeCanvas() {
+// Ajustar al tamaño de la ventana
+function resize() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
 }
-resizeCanvas();
-window.addEventListener("resize", resizeCanvas);
+resize();
+window.addEventListener("resize", resize);
 
-// Lluvia
-const particles = [];
-const totalParticles = 500;
+// Crear partículas
+const drops = [];
+const total = 450;
 
-for (let i = 0; i < totalParticles; i++) {
-    particles.push({
-        x: Math.random() * window.innerWidth,
-        y: Math.random() * window.innerHeight,
-        speed: 3 + Math.random() * 5,
-        length: 8 + Math.random() * 12  // ← gotas más cortas
-    });
+function createDrops() {
+    for (let i = 0; i < total; i++) {
+        drops.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            length: 8 + Math.random() * 12,
+            speed: 3 + Math.random() * 5
+        });
+    }
 }
+createDrops();
 
-// Animación principal
-function draw() {
+// Animación
+function rain() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
     ctx.fillStyle = "#ffffff";
 
-    partic
+    drops.forEach(d => {
+        ctx.fillRect(d.x, d.y, 2, d.length);
 
+        d.y += d.speed;
+        if (d.y > canvas.height) {
+            d.y = -20;
+            d.x = Math.random() * canvas.width;
+        }
+    });
 
+    requestAnimationFrame(rain);
+}
+
+rain();
+
+// Click para volver a home
+document.addEventListener("click", () => {
+    window.location.href = "index.html";
+});
+</script>
+
+</body>
+</html>
