@@ -35,29 +35,67 @@ function resize() {
 resize();
 window.addEventListener("resize", resize);
 
-// Crear partículas
+// ------------------------------------
+// LLUVIA (igual que lo tenías)
+// ------------------------------------
 const drops = [];
 const total = 450;
 
 function createDrops() {
+    drops.length = 0;
     for (let i = 0; i < total; i++) {
         drops.push({
             x: Math.random() * canvas.width,
             y: Math.random() * canvas.height,
             length: 8 + Math.random() * 12,
-            speed: 3 + Math.random() * 5
+            speed: 3 + Math.random() * 5,
+            w: 2
         });
     }
 }
 createDrops();
 
-// Animación
-function rain() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#ffffff";
+// ------------------------------------
+// DESTELLOS (micro chispeos)
+// ------------------------------------
+const sparkles = [];
+const MAX_SPARKLES = 120;      // límite en pantalla
+const SPAWN_PER_FRAME = 2;     // cuantos nacen por frame (sube/baja)
+const SPARKLE_COLOR = "#ffffff";
 
+function spawnSparkle() {
+    if (sparkles.length >= MAX_SPARKLES) return;
+
+    const size = Math.random() < 0.75 ? 1 : 2; // la mayoría 1px
+    const maxLife = 10 + Math.floor(Math.random() * 18); // frames
+    sparkles.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        size,
+        life: 0,
+        maxLife,
+        // pequeña variación para que algunos parezcan “más lush”
+        intensity: 0.35 + Math.random() * 0.65
+    });
+}
+
+// Curva suave de aparición y desaparición (0→1→0)
+function pulse(t) {
+    // t en [0,1]
+    // forma campana suave
+    return Math.sin(Math.PI * t);
+}
+
+// ------------------------------------
+// Animación
+// ------------------------------------
+function render() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Lluvia
+    ctx.fillStyle = "#ffffff";
     drops.forEach(d => {
-        ctx.fillRect(d.x, d.y, 2, d.length);
+        ctx.fillRect(d.x, d.y, d.w, d.length);
 
         d.y += d.speed;
         if (d.y > canvas.height) {
@@ -66,10 +104,41 @@ function rain() {
         }
     });
 
-    requestAnimationFrame(rain);
+    // Spawnear destellos (micro, sin movimiento)
+    for (let i = 0; i < SPAWN_PER_FRAME; i++) spawnSparkle();
+
+    // Dibujar destellos
+    for (let i = sparkles.length - 1; i >= 0; i--) {
+        const s = sparkles[i];
+        s.life++;
+
+        const t = s.life / s.maxLife; // 0..1
+        const a = pulse(t) * s.intensity;
+
+        // si ya terminó, eliminar
+        if (s.life >= s.maxLife) {
+            sparkles.splice(i, 1);
+            continue;
+        }
+
+        ctx.globalAlpha = a;
+        ctx.fillStyle = SPARKLE_COLOR;
+
+        // pixel puro
+        ctx.fillRect(s.x, s.y, s.size, s.size);
+
+        // opcional: mini “doble pixel” muy raro (más vivo, no nieve)
+        if (s.size === 2 && Math.random() < 0.15) {
+            ctx.fillRect(s.x + 2, s.y, 1, 1);
+        }
+    }
+
+    ctx.globalAlpha = 1;
+
+    requestAnimationFrame(render);
 }
 
-rain();
+render();
 
 // Click para volver a home
 document.addEventListener("click", () => {
