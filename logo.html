@@ -35,11 +35,14 @@ function resize() {
 resize();
 window.addEventListener("resize", resize);
 
-// ------------------------------------
-// LLUVIA (igual que lo tenías)
-// ------------------------------------
+// Crear partículas
 const drops = [];
 const total = 450;
+
+// Ajustes del brillo integrado en gotas
+const TWINKLE_CHANCE_PER_FRAME = 0.012; // más alto = más destellos (prueba 0.008–0.02)
+const TWINKLE_FRAMES_MIN = 6;
+const TWINKLE_FRAMES_MAX = 14;
 
 function createDrops() {
     drops.length = 0;
@@ -47,56 +50,54 @@ function createDrops() {
         drops.push({
             x: Math.random() * canvas.width,
             y: Math.random() * canvas.height,
-            length: 8 + Math.random() * 12,
+            length: 6 + Math.random() * 10,  // ya lo tenías en 8–20, aquí un pelín más contenido
             speed: 3 + Math.random() * 5,
-            w: 2
+            w: 2,
+            twinkle: 0,       // frames restantes de brillo
+            twinkleMax: 0     // duración total del brillo para curva
         });
     }
 }
 createDrops();
 
-// ------------------------------------
-// DESTELLOS (micro chispeos)
-// ------------------------------------
-const sparkles = [];
-const MAX_SPARKLES = 120;      // límite en pantalla
-const SPAWN_PER_FRAME = 2;     // cuantos nacen por frame (sube/baja)
-const SPARKLE_COLOR = "#ffffff";
-
-function spawnSparkle() {
-    if (sparkles.length >= MAX_SPARKLES) return;
-
-    const size = Math.random() < 0.75 ? 1 : 2; // la mayoría 1px
-    const maxLife = 10 + Math.floor(Math.random() * 18); // frames
-    sparkles.push({
-        x: Math.random() * canvas.width,
-        y: Math.random() * canvas.height,
-        size,
-        life: 0,
-        maxLife,
-        // pequeña variación para que algunos parezcan “más lush”
-        intensity: 0.35 + Math.random() * 0.65
-    });
-}
-
-// Curva suave de aparición y desaparición (0→1→0)
+// Curva suave 0→1→0 para el brillo
 function pulse(t) {
-    // t en [0,1]
-    // forma campana suave
     return Math.sin(Math.PI * t);
 }
 
-// ------------------------------------
-// Animación
-// ------------------------------------
-function render() {
+function rain() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Lluvia
-    ctx.fillStyle = "#ffffff";
     drops.forEach(d => {
+        // Activar twinkle de forma aleatoria
+        if (d.twinkle <= 0 && Math.random() < TWINKLE_CHANCE_PER_FRAME) {
+            d.twinkleMax = TWINKLE_FRAMES_MIN + Math.floor(Math.random() * (TWINKLE_FRAMES_MAX - TWINKLE_FRAMES_MIN + 1));
+            d.twinkle = d.twinkleMax;
+        }
+
+        // Dibujar gota normal
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = "#ffffff";
         ctx.fillRect(d.x, d.y, d.w, d.length);
 
+        // Si está en twinkle, “sustituimos” parte de la gota por un núcleo brillante
+        if (d.twinkle > 0) {
+            const life = (d.twinkleMax - d.twinkle) / d.twinkleMax; // 0..1
+            const a = 0.35 + 0.65 * pulse(life); // brillo fuerte pero corto
+
+            // Núcleo brillante corto dentro de la gota (no cae aparte, es la misma gota)
+            const coreLen = Math.max(3, Math.floor(d.length * (0.25 + Math.random() * 0.15)));
+            const coreY = d.y + Math.floor(d.length * 0.35);
+
+            ctx.globalAlpha = a;
+            // un pelín más grueso solo durante el destello
+            ctx.fillRect(d.x - 0.5, coreY, d.w + 1, coreLen);
+
+            d.twinkle--;
+            ctx.globalAlpha = 1;
+        }
+
+        // Movimiento
         d.y += d.speed;
         if (d.y > canvas.height) {
             d.y = -20;
@@ -104,41 +105,10 @@ function render() {
         }
     });
 
-    // Spawnear destellos (micro, sin movimiento)
-    for (let i = 0; i < SPAWN_PER_FRAME; i++) spawnSparkle();
-
-    // Dibujar destellos
-    for (let i = sparkles.length - 1; i >= 0; i--) {
-        const s = sparkles[i];
-        s.life++;
-
-        const t = s.life / s.maxLife; // 0..1
-        const a = pulse(t) * s.intensity;
-
-        // si ya terminó, eliminar
-        if (s.life >= s.maxLife) {
-            sparkles.splice(i, 1);
-            continue;
-        }
-
-        ctx.globalAlpha = a;
-        ctx.fillStyle = SPARKLE_COLOR;
-
-        // pixel puro
-        ctx.fillRect(s.x, s.y, s.size, s.size);
-
-        // opcional: mini “doble pixel” muy raro (más vivo, no nieve)
-        if (s.size === 2 && Math.random() < 0.15) {
-            ctx.fillRect(s.x + 2, s.y, 1, 1);
-        }
-    }
-
-    ctx.globalAlpha = 1;
-
-    requestAnimationFrame(render);
+    requestAnimationFrame(rain);
 }
 
-render();
+rain();
 
 // Click para volver a home
 document.addEventListener("click", () => {
