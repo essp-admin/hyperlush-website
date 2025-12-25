@@ -36,18 +36,17 @@
 <div class="outer-box">
 
     <div class="top-box">
-        <!-- Logo se queda como está -->
         <a href="logo.html">
-            <img src="assets/hyperlush-logo-website.svg" class="logo">
+            <img src="assets/hyperlush-logo-website.svg" class="logo" alt="Hyperlush">
         </a>
     </div>
 
     <div class="bottom-box">
 
         <div class="links">
-            <a href="https://www.instagram.com/hyperlush_/" target="_blank">INSTAGRAM</a>
-            <a href="https://www.beatport.com/es/label/hyperlush/127846" target="_blank">BEATPORT</a>
-            <a href="https://soundcloud.com/hyperlush" target="_blank">SOUNDCLOUD</a>
+            <a href="https://www.instagram.com/hyperlush_/" target="_blank" rel="noopener">INSTAGRAM</a>
+            <a href="https://www.beatport.com/es/label/hyperlush/127846" target="_blank" rel="noopener">BEATPORT</a>
+            <a href="https://soundcloud.com/hyperlush" target="_blank" rel="noopener">SOUNDCLOUD</a>
         </div>
 
         <div class="dashed"></div>
@@ -59,27 +58,24 @@
 
         <div class="dashed"></div>
 
-        <!-- AQUÍ SOLO AÑADIMOS EL ID -->
-        <div class="copyright" id="footer">©2025 HYPERLUSH</div>
+        <div class="copyright" id="footer" style="cursor:pointer;">©2025 HYPERLUSH</div>
 
     </div>
 
 </div>
 
-<!-- SCRIPT SOLO PARA EL FOOTER -->
 <script>
   const footer = document.getElementById("footer");
-
-  if (footer) {
-    footer.addEventListener("click", (e) => {
-      e.stopPropagation(); // evita interferencias futuras
-      window.location.href = "turntable.html";
-    });
-  }
+  footer.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    window.location.href = "turntable.html";
+  });
 </script>
 
 </body>
 </html>
+
 
 
 

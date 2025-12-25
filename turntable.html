@@ -1,15 +1,19 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Hyperlush - Turntable</title>
+  <title>Hyperlush Turntable</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+
   <style>
     html, body {
       margin: 0;
       height: 100%;
       background: #0a00db;
       overflow: hidden;
+      font-family: "DM Mono", monospace;
     }
 
     canvas {
@@ -19,248 +23,351 @@
       height: 100vh;
       image-rendering: pixelated;
       image-rendering: crisp-edges;
-      cursor: pointer;
     }
 
-    /* Texto UI (pixel vibes sin cargar fuentes) */
-    .ui {
+    /* Texto HUD, sin liarla con canvas */
+    .hud {
       position: fixed;
-      left: 24px;
-      top: 20px;
+      top: 18px;
+      left: 18px;
       color: #ffffff;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
       font-size: 14px;
-      letter-spacing: 2px;
-      text-transform: uppercase;
+      line-height: 1.6;
+      letter-spacing: 0.06em;
       user-select: none;
       pointer-events: none;
       opacity: 0.95;
-      line-height: 1.6;
-      white-space: pre;
+      text-transform: uppercase;
     }
 
     .hint {
-      opacity: 0.75;
-      letter-spacing: 1px;
-      font-size: 12px;
-      margin-top: 8px;
+      position: fixed;
+      left: 50%;
+      bottom: 22px;
+      transform: translateX(-50%);
+      color: #ffffff;
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      user-select: none;
+      pointer-events: none;
+      opacity: 0.95;
+      text-transform: uppercase;
+      text-align: center;
+      padding: 8px 12px;
+      border: 1px solid rgba(255,255,255,0.5);
+      background: rgba(10,0,219,0.35);
     }
   </style>
 </head>
+
 <body>
   <canvas id="c"></canvas>
-  <div class="ui" id="ui">TURNTABLE
-CLICK TO INTERACT
-<span class="hint">3 steps, then home</span></div>
+  <div class="hud">
+    TURNTABLE<br/>
+    CLICK TO INTERACT<br/>
+    3 STEPS, THEN HOME
+  </div>
+  <div class="hint" id="hint">STEP 1: DROP THE NEEDLE</div>
 
   <script>
     const canvas = document.getElementById("c");
     const ctx = canvas.getContext("2d", { alpha: false });
 
-    // Buffer low-res para look 8-bit
+    // Buffer interno para look pixel
     const buf = document.createElement("canvas");
-    const b = buf.getContext("2d", { alpha: true });
+    const b = buf.getContext("2d");
 
-    const BG = "#0a00db";
-    const WHT = "#ffffff";
-    const DIM = "#cfd6ff";
-    const DARK = "#0b0a1a";
-
-    // Ajusta pixelado: más alto = menos pixel, más bajo = más 8-bit
-    const PIXEL_SCALE = 6;
+    // Ajusta el pixelado global
+    const PIXEL_SCALE_BASE = 6; // 5..9 según quieras
 
     let W = 0, H = 0;
+
+    // Estado de interacción
+    // 0: aguja arriba
+    // 1: aguja abajo
+    // 2: mostrar mensaje
+    // 3: salir
+    let stepState = 0;
+
+    // Animación
+    let t = 0;
+    let needleDown = 0; // 0..1
+    let msgAlpha = 0;   // 0..1
+
+    const hint = document.getElementById("hint");
 
     function resize() {
       canvas.width = Math.floor(window.innerWidth);
       canvas.height = Math.floor(window.innerHeight);
 
-      buf.width = Math.max(1, Math.floor(canvas.width / PIXEL_SCALE));
-      buf.height = Math.max(1, Math.floor(canvas.height / PIXEL_SCALE));
+      // Escala adaptativa para móvil: buscamos que el buffer no sea enorme
+      const scale = Math.max(4, Math.min(9, PIXEL_SCALE_BASE + (canvas.width < 520 ? 1 : 0)));
+
+      buf.width = Math.max(180, Math.floor(canvas.width / scale));
+      buf.height = Math.max(120, Math.floor(canvas.height / scale));
 
       W = buf.width;
       H = buf.height;
+
+      ctx.imageSmoothingEnabled = false;
+      b.imageSmoothingEnabled = false;
     }
+
     window.addEventListener("resize", resize);
     resize();
 
-    // Estado de interacción:
-    // 0 = aguja arriba, solo gira
-    // 1 = aguja abajo
-    // 2 = mostrar texto "DO YOU WANT TO PLAY?"
-    // 3 = cierre (aguja arriba + redirect)
-    let state = 0;
-
-    // Animación del plato
-    let t = 0;
+    function clamp(v, a, c) { return Math.max(a, Math.min(c, v)); }
 
     // Helpers pixel
-    function rect(x, y, w, h, col, a = 1) {
+    function px(x, y, w, h, col, a = 1) {
       b.globalAlpha = a;
       b.fillStyle = col;
       b.fillRect(x|0, y|0, w|0, h|0);
       b.globalAlpha = 1;
     }
 
-    // Dibuja un círculo “pixelado” con rects
-    function pixCircle(cx, cy, r, col, a = 1) {
-      b.globalAlpha = a;
-      b.fillStyle = col;
-      const r2 = r*r;
+    function frameRect(x, y, w, h, col, thick=1, a=1) {
+      px(x, y, w, thick, col, a);
+      px(x, y+h-thick, w, thick, col, a);
+      px(x, y, thick, h, col, a);
+      px(x+w-thick, y, thick, h, col, a);
+    }
+
+    // Dibuja un “panel” isométrico sencillo (top + side)
+    function isoPanel(x, y, w, h, colTop, colSide, colFront) {
+      // Top (paralelogramo)
+      for (let i = 0; i < h; i++) {
+        px(x + i, y + i, w, 1, colTop);
+      }
+      // Side derecha
+      for (let i = 0; i < h; i++) {
+        px(x + w + i, y + i, 1, 10, colSide);
+      }
+      // Front
+      px(x, y + h, w + h, 10, colFront);
+    }
+
+    function drawTurntable(cx, cy, s) {
+      // Paleta
+      const BG = "#0a00db";
+      const WHT = "#ffffff";
+      const G1  = "#cfd6ff";
+      const G2  = "#9aa6ff";
+      const G3  = "#5b66ff";
+      const DK  = "#1a1a1a";
+      const DK2 = "#0f0f12";
+      const RED = "#da0008";
+
+      // Clear buffer
+      b.fillStyle = BG;
+      b.fillRect(0, 0, W, H);
+
+      // “Tarjeta” / marco central
+      const cardW = 120 * s;
+      const cardH = 70 * s;
+      const cardX = (cx - cardW/2) | 0;
+      const cardY = (cy - cardH/2) | 0;
+
+      // Marco exterior fino como tu estética
+      frameRect(cardX-8*s, cardY-10*s, cardW+16*s, cardH+20*s, WHT, 1);
+
+      // Base isométrica (tipo icono)
+      const baseX = cardX + 16*s;
+      const baseY = cardY + 18*s;
+      const baseW = 88*s;
+      const bevel = 10*s;
+
+      // Top
+      // top: gris claro
+      for (let i = 0; i < bevel; i++) {
+        px(baseX + i, baseY + i, baseW, 1, G2);
+      }
+      // Cuerpo: frontal
+      px(baseX, baseY + bevel, baseW + bevel, 28*s, G3);
+      // Borde superior del cuerpo
+      px(baseX, baseY + bevel, baseW + bevel, 1, G1);
+
+      // Lateral derecho (un toque más oscuro)
+      px(baseX + baseW, baseY + bevel, bevel, 28*s, "#404bff");
+
+      // “Plato” (círculo pixelado)
+      const platterCx = baseX + 34*s;
+      const platterCy = baseY + bevel + 14*s;
+      const platterR  = 18*s;
+
+      // Sombra base del plato
+      drawPixelCircle(platterCx, platterCy+1*s, platterR+2*s, DK2);
+      // Aro del plato
+      drawPixelCircle(platterCx, platterCy, platterR+2*s, DK2);
+      drawPixelCircle(platterCx, platterCy, platterR+1*s, DK);
+
+      // Vinilo
+      drawPixelCircle(platterCx, platterCy, platterR, DK);
+      // Etiqueta roja
+      drawPixelCircle(platterCx, platterCy, 6*s, RED);
+      // Centro claro
+      drawPixelCircle(platterCx, platterCy, 2*s, "#d9d9d9");
+
+      // Surcos (puntos rotando, simple y efectivo en 8-bit)
+      const spin = t * 0.06;
+      for (let i = 0; i < 48; i++) {
+        const ang = (i / 48) * Math.PI * 2 + spin;
+        const rr = (10*s) + ((i % 3) * 2*s);
+        const x = (platterCx + Math.cos(ang) * rr) | 0;
+        const y = (platterCy + Math.sin(ang) * rr) | 0;
+        px(x, y, 1, 1, "#e6e9ff", 0.9);
+      }
+
+      // Controles a la derecha (botones simples)
+      const btnX = baseX + 64*s;
+      const btnY = baseY + bevel + 6*s;
+      frameRect(btnX, btnY, 16*s, 10*s, WHT, 1);
+      frameRect(btnX + 8*s, btnY + 16*s, 22*s, 10*s, WHT, 1);
+      frameRect(btnX + 18*s, btnY + 34*s, 16*s, 10*s, WHT, 1);
+
+      // Aguja (tonoarm)
+      // Punto pivote
+      const pivotX = baseX + 74*s;
+      const pivotY = baseY + bevel + 6*s;
+
+      // Aguja sube/baja según needleDown
+      const drop = needleDown; // 0..1
+      const armLen = 34*s;
+
+      // Posición final de la punta cerca del vinilo
+      const targetX = platterCx + 4*s;
+      const targetY = platterCy - 2*s;
+
+      // Interpolación de la punta: arriba a la derecha -> sobre el disco
+      const tipX0 = baseX + baseW + bevel - 4*s;
+      const tipY0 = baseY + bevel + 2*s;
+
+      const tipX = (tipX0 + (targetX - tipX0) * drop) | 0;
+      const tipY = (tipY0 + (targetY - tipY0) * drop) | 0;
+
+      // Brazo: dibujado como línea pixel (segmentos)
+      drawPixelLine(pivotX, pivotY, tipX, tipY, "#e6e9ff");
+      // Cuerpo del brazo un poco más grueso
+      drawPixelLine(pivotX, pivotY+1, tipX, tipY+1, "#cfd6ff");
+
+      // Cabezal
+      px(tipX-1, tipY-1, 4*s, 2*s, "#e6e9ff");
+      // Punta
+      px(tipX + 2*s, tipY + 1*s, 1*s, 1*s, "#ffffff");
+
+      // Flash mínimo cuando aguja baja
+      if (stepState >= 1) {
+        px(platterCx - 10*s, platterCy - 10*s, 1, 1, "#ffffff", 0.7);
+        px(platterCx + 12*s, platterCy + 6*s, 1, 1, "#ffffff", 0.7);
+      }
+
+      // Mensaje “DO YOU WANT TO PLAY”
+      const msg = "DO YOU WANT TO PLAY";
+      if (msgAlpha > 0.01) {
+        const pad = 10*s;
+        const boxW = (msg.length * 4) + 12; // aproximación en buffer pixels
+        const bx = ((W - boxW) / 2) | 0;
+        const by = (cardY + cardH + 6*s) | 0;
+
+        // cajita
+        frameRect(bx - pad, by - 6*s, boxW + pad*2, 16*s, "#ffffff", 1, 0.9 * msgAlpha);
+        // texto pixel (usamos fillText con smoothing off y tamaño pequeño)
+        b.globalAlpha = msgAlpha;
+        b.fillStyle = "#ffffff";
+        b.font = `${10}px "DM Mono", monospace`;
+        b.textAlign = "center";
+        b.textBaseline = "middle";
+        b.fillText(msg, W/2, by + 2*s);
+        b.globalAlpha = 1;
+      }
+
+      // Pintar al canvas final
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(buf, 0, 0, canvas.width, canvas.height);
+    }
+
+    function drawPixelCircle(cx, cy, r, col) {
+      // círculo pixelado sencillo
+      // r en “píxeles” del buffer (ya escalado por s)
       for (let y = -r; y <= r; y++) {
         for (let x = -r; x <= r; x++) {
-          if (x*x + y*y <= r2) b.fillRect((cx + x)|0, (cy + y)|0, 1, 1);
+          if ((x*x + y*y) <= (r*r)) {
+            px(cx + x, cy + y, 1, 1, col);
+          }
         }
       }
-      b.globalAlpha = 1;
     }
 
-    // “Grooves” como puntitos en anillos que rotan
-    function grooves(cx, cy, rMin, rMax, ang, density) {
-      b.fillStyle = DIM;
-      for (let i = 0; i < density; i++) {
-        const rr = rMin + ((i / density) * (rMax - rMin));
-        const a = ang + i * 0.35;
-        const x = (cx + Math.cos(a) * rr) | 0;
-        const y = (cy + Math.sin(a) * rr) | 0;
-        b.fillRect(x, y, 1, 1);
+    function drawPixelLine(x0, y0, x1, y1, col) {
+      // Bresenham
+      let dx = Math.abs(x1 - x0);
+      let sx = x0 < x1 ? 1 : -1;
+      let dy = -Math.abs(y1 - y0);
+      let sy = y0 < y1 ? 1 : -1;
+      let err = dx + dy;
+
+      while (true) {
+        px(x0, y0, 1, 1, col);
+        if (x0 === x1 && y0 === y1) break;
+        const e2 = 2 * err;
+        if (e2 >= dy) { err += dy; x0 += sx; }
+        if (e2 <= dx) { err += dx; y0 += sy; }
       }
     }
 
-    function drawTurntable() {
-      // Fondo
-      rect(0, 0, W, H, BG);
-
-      // Marco/placa del tocadiscos (centrado)
-      const plateW = Math.min(110, (W * 0.75) | 0);
-      const plateH = Math.min(70, (H * 0.55) | 0);
-      const px = ((W - plateW) / 2) | 0;
-      const py = ((H - plateH) / 2) | 0;
-
-      // Borde exterior
-      rect(px - 2, py - 2, plateW + 4, plateH + 4, WHT, 0.9);
-      // Interior
-      rect(px, py, plateW, plateH, BG);
-
-      // Plato (lado izquierdo)
-      const cx = (px + (plateW * 0.38)) | 0;
-      const cy = (py + (plateH * 0.52)) | 0;
-      const R  = Math.min(26, (plateH * 0.36) | 0);
-
-      // Base del plato
-      pixCircle(cx, cy, R + 2, WHT, 0.35);
-      pixCircle(cx, cy, R + 1, WHT, 0.2);
-      pixCircle(cx, cy, R, DARK, 0.95);
-      pixCircle(cx, cy, (R * 0.65) | 0, DARK, 0.95);
-      pixCircle(cx, cy, (R * 0.15) | 0, WHT, 0.85); // spindle
-
-      // Rotación “sugerida” con grooves
-      const ang = t * 0.06;
-      grooves(cx, cy, (R * 0.25) | 0, (R * 0.9) | 0, ang, 90);
-      grooves(cx, cy, (R * 0.35) | 0, (R * 0.85) | 0, -ang * 1.1, 80);
-
-      // Etiqueta del vinilo (pequeño círculo claro)
-      pixCircle(cx + ((Math.cos(ang) * (R * 0.35))|0), cy + ((Math.sin(ang) * (R * 0.35))|0), 2, WHT, 0.9);
-
-      // Brazo/aguja (lado derecho)
-      const armX = (px + (plateW * 0.64)) | 0;
-      const armY = (py + (plateH * 0.28)) | 0;
-
-      // Base brazo
-      rect(armX, armY, 10, 6, WHT, 0.7);
-      rect(armX + 2, armY + 2, 6, 2, BG, 1);
-
-      // Posición aguja según state
-      const needleDown = (state >= 1); // state 1 y 2 -> aguja abajo
-      if (!needleDown) {
-        // brazo arriba (diagonal lejos del plato)
-        rect(armX + 8, armY + 1, 20, 2, WHT, 0.85);
-        rect(armX + 26, armY + 0, 6, 4, WHT, 0.9); // head
-      } else {
-        // brazo hacia el plato
-        // segmento principal
-        rect(armX + 8, armY + 10, 18, 2, WHT, 0.9);
-        // “codo” acercándose al plato
-        rect(armX + 24, armY + 10, 2, 10, WHT, 0.9);
-        // cabeza sobre el vinilo
-        const hx = cx + ((R * 0.72) | 0);
-        const hy = cy - ((R * 0.18) | 0);
-        rect(hx, hy, 5, 3, WHT, 0.95);
-        rect(hx + 1, hy + 2, 3, 1, BG, 1);
-      }
-
-      // Botón pequeño (decorativo)
-      rect(px + plateW - 16, py + plateH - 12, 10, 6, WHT, 0.6);
-      rect(px + plateW - 14, py + plateH - 10, 6, 2, BG, 1);
-
-      // Texto central si state == 2
-      if (state === 2) {
-        const msg = "DO YOU WANT TO PLAY?";
-        drawPixelText(msg, (W/2)|0, (py + plateH + 10)|0);
-        drawPixelText("CLICK ONCE MORE", (W/2)|0, (py + plateH + 20)|0, 0.8);
-      }
+    function updateHint() {
+      if (stepState === 0) hint.textContent = "STEP 1: DROP THE NEEDLE";
+      if (stepState === 1) hint.textContent = "STEP 2: KEEP GOING";
+      if (stepState === 2) hint.textContent = "STEP 3: CONFIRM";
     }
 
-    // Texto simple “pixel”
-    function drawPixelText(str, cx, y, alpha = 1) {
-      b.globalAlpha = alpha;
-      b.fillStyle = WHT;
-
-      // Fuente “pixel” falsa: dibujamos con fillText sobre buffer pequeño queda muy 8-bit
-      b.font = "6px monospace";
-      b.textAlign = "center";
-      b.textBaseline = "top";
-      b.fillText(str, cx, y);
-      b.globalAlpha = 1;
+    function onInteract() {
+      if (stepState === 0) {
+        stepState = 1;
+      } else if (stepState === 1) {
+        stepState = 2;
+      } else if (stepState === 2) {
+        stepState = 3;
+        window.location.href = "index.html";
+        return;
+      }
+      updateHint();
     }
+
+    document.addEventListener("click", onInteract, { passive: true });
+    document.addEventListener("keydown", (e) => {
+      if (e.code === "Space" || e.code === "Enter") onInteract();
+    });
 
     function loop() {
       t++;
 
-      b.clearRect(0, 0, W, H);
-      drawTurntable();
+      // Needle anim
+      const targetNeedle = (stepState >= 1) ? 1 : 0;
+      needleDown += (targetNeedle - needleDown) * 0.12;
+      needleDown = clamp(needleDown, 0, 1);
 
-      ctx.imageSmoothingEnabled = false;
-      ctx.fillStyle = BG;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(buf, 0, 0, canvas.width, canvas.height);
+      // Message fade
+      const targetMsg = (stepState >= 2) ? 1 : 0;
+      msgAlpha += (targetMsg - msgAlpha) * 0.10;
+      msgAlpha = clamp(msgAlpha, 0, 1);
+
+      // Centro de dibujo
+      const cx = (W / 2) | 0;
+      const cy = (H / 2) | 0;
+
+      // Factor interno s, para que el pixel art tenga un tamaño fijo en buffer
+      // Ajusta si lo quieres más grande o más compacto
+      const s = (W < 260 ? 1 : 1); // se queda 1, el escalado real es el buf->canvas
+
+      drawTurntable(cx, cy, s);
 
       requestAnimationFrame(loop);
     }
+
+    updateHint();
     loop();
-
-    // Interacción: click/space
-    function advance() {
-      if (state === 0) {
-        state = 1; // baja aguja
-        return;
-      }
-      if (state === 1) {
-        state = 2; // muestra mensaje
-        return;
-      }
-      if (state === 2) {
-        state = 3; // cierre
-        // mini pausa para que se “vea” que sube y sale
-        setTimeout(() => {
-          window.location.href = "index.html";
-        }, 180);
-        state = 0; // visualmente vuelve arriba en ese frame
-        return;
-      }
-    }
-
-    document.addEventListener("click", (e) => {
-      e.preventDefault();
-      advance();
-    });
-
-    document.addEventListener("keydown", (e) => {
-      if (e.code === "Space" || e.code === "Enter") {
-        e.preventDefault();
-        advance();
-      }
-    }, { passive: false });
   </script>
 </body>
 </html>
+
