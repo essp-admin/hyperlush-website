@@ -1,18 +1,15 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Hyperlush</title>
-
   <style>
     html, body {
       margin: 0;
-      padding: 0;
+      height: 100%;
       background: #0a00db;
       overflow: hidden;
-      height: 100%;
-      width: 100%;
     }
     canvas {
       position: fixed;
@@ -28,130 +25,168 @@
     const canvas = document.getElementById("rain");
     const ctx = canvas.getContext("2d", { alpha: true });
 
-    function resize() {
-      const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
-      canvas.width = Math.floor(window.innerWidth * dpr);
-      canvas.height = Math.floor(window.innerHeight * dpr);
-      canvas.style.width = window.innerWidth + "px";
-      canvas.style.height = window.innerHeight + "px";
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
+    // --------- AJUSTES (toca aquí) ----------
+    const BG = "#0a00db";
 
-    window.addEventListener("resize", resize);
+    const DROP_COUNT = 420;       // densidad
+    const SPEED_MIN = 2.8;
+    const SPEED_MAX = 6.2;
+
+    const LEN_MIN = 10;
+    const LEN_MAX = 26;
+
+    const THICK_MIN = 0.8;        // grosor fino para evitar “bolas”
+    const THICK_MAX = 1.6;
+
+    const WIND = 0.15;            // 0 = vertical total, 0.1–0.3 = ligera diagonal
+
+    const TRAIL_ALPHA = 0.18;     // más bajo = más estela, más alto = más “seco”
+
+    // Twinkle sutil, sin “bombillas”
+    const TWINKLE_CHANCE = 0.006; // 0.004–0.01
+    const TWINKLE_FRAMES_MIN = 10;
+    const TWINKLE_FRAMES_MAX = 22;
+    const TWINKLE_GAIN = 0.45;    // cuánto sube el brillo en twinkle (0.25–0.6)
+    // --------------------------------------
+
+    let W = 0, H = 0, DPR = 1;
+
+    function resize() {
+      DPR = Math.min(2, window.devicePixelRatio || 1);
+      W = Math.floor(window.innerWidth);
+      H = Math.floor(window.innerHeight);
+      canvas.width = Math.floor(W * DPR);
+      canvas.height = Math.floor(H * DPR);
+      canvas.style.width = W + "px";
+      canvas.style.height = H + "px";
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+    }
     resize();
+    window.addEventListener("resize", resize);
+
+    function rand(a, b) { return a + Math.random() * (b - a); }
+    function randi(a, b) { return Math.floor(rand(a, b + 1)); }
+
+    // Curva suave 0→1→0
+    function pulse01(t) { return Math.sin(Math.PI * t); }
 
     const drops = [];
-    const TOTAL = 520;
+    function spawnDrop(d) {
+      d.x = Math.random() * W;
+      d.y = -Math.random() * H;
+      d.len = rand(LEN_MIN, LEN_MAX);
+      d.thick = rand(THICK_MIN, THICK_MAX);
+      d.speed = rand(SPEED_MIN, SPEED_MAX);
 
-    // Twinkle (más exagerado)
-    const TWINKLE_CHANCE_PER_FRAME = 0.02; // sube/baja para más/menos destellos
-    const TWINKLE_FRAMES_MIN = 8;
-    const TWINKLE_FRAMES_MAX = 18;
-
-    function rand(min, max) {
-      return min + Math.random() * (max - min);
+      // twinkle
+      d.tw = 0;
+      d.twMax = 0;
+      d.twOffset = rand(0.15, 0.55);   // núcleo fijo dentro de la gota
+      d.twCore = rand(0.18, 0.28);     // longitud relativa del núcleo (fija)
     }
 
-    function createDrops() {
+    function init() {
       drops.length = 0;
-      for (let i = 0; i < TOTAL; i++) {
-        drops.push({
-          x: Math.random() * window.innerWidth,
-          y: Math.random() * window.innerHeight,
-          len: rand(10, 26),
-          w: rand(1, 2.2),
-          speed: rand(3.2, 7.2),
-          // twinkle state
-          tw: 0,
-          twMax: 0,
-          // para que no todas brillen igual
-          hueShift: rand(-10, 20)
-        });
+      for (let i = 0; i < DROP_COUNT; i++) {
+        const d = {};
+        spawnDrop(d);
+        d.y = Math.random() * H;
+        drops.push(d);
       }
     }
-    createDrops();
-
-    function pulse01(t) {
-      // 0->1->0 suave
-      return Math.sin(Math.PI * t);
-    }
+    init();
 
     function drawDrop(d) {
-      // Gota base: degradado (cabeza más brillante)
-      const grad = ctx.createLinearGradient(d.x, d.y, d.x, d.y + d.len);
-      grad.addColorStop(0, "rgba(255,255,255,0.95)");
-      grad.addColorStop(0.25, "rgba(255,255,255,0.55)");
-      grad.addColorStop(1, "rgba(255,255,255,0)");
+      // Base alpha ligera para que no “queme”
+      let a = 0.62;
 
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = grad;
-      ctx.fillRect(d.x, d.y, d.w, d.len);
+      // Activar twinkle con duración fija (sin random por frame)
+      if (d.tw <= 0 && Math.random() < TWINKLE_CHANCE) {
+        d.twMax = randi(TWINKLE_FRAMES_MIN, TWINKLE_FRAMES_MAX);
+        d.tw = d.twMax;
+      }
 
-      // Twinkle: bloom + flash de color dentro de la gota
+      // Twinkle suave: sube el brillo pero sigue siendo “streak”
       if (d.tw > 0) {
         const life = (d.twMax - d.tw) / d.twMax; // 0..1
-        const p = pulse01(life);
-
-        // Intensidad exagerada
-        const glowAlpha = 0.25 + 0.75 * p;  // 0.25..1
-        const glowBlur = 6 + 18 * p;        // 6..24
-        const coreLen = Math.max(4, Math.floor(d.len * 0.35));
-        const coreY = d.y + Math.floor(d.len * 0.2);
-
-        // Glow (sombra) para que se vea claramente
-        ctx.save();
-        ctx.globalAlpha = glowAlpha;
-
-        // Ligeramente azulado, muy “Hyperlush”
-        ctx.shadowBlur = glowBlur;
-        ctx.shadowColor = `rgba(180, 210, 255, ${0.85 * glowAlpha})`;
-
-        ctx.fillStyle = `rgba(230, 245, 255, ${0.9})`;
-        ctx.fillRect(d.x - 1.2, coreY, d.w + 2.4, coreLen);
-
-        // Spark puntual (punto brillante) para hacerlo obvio
-        const sx = d.x + d.w * 0.5;
-        const sy = coreY + coreLen * 0.15;
-        ctx.beginPath();
-        ctx.arc(sx, sy, 1.8 + 2.2 * p, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255,255,255,${0.85})`;
-        ctx.fill();
-
-        ctx.restore();
-
+        a += TWINKLE_GAIN * pulse01(life);
         d.tw--;
+      }
+
+      // Dibujar como línea con gradiente (evita el look “píxel/cuadrado”)
+      const x1 = d.x;
+      const y1 = d.y;
+      const x2 = d.x + WIND * d.len;
+      const y2 = d.y + d.len;
+
+      // Gradiente: cola más tenue, cabeza más brillante
+      const g = ctx.createLinearGradient(x1, y1, x2, y2);
+      g.addColorStop(0.0, `rgba(255,255,255,${0.00})`);
+      g.addColorStop(0.35, `rgba(255,255,255,${0.18 * a})`);
+      g.addColorStop(1.0, `rgba(255,255,255,${0.70 * a})`);
+
+      ctx.lineWidth = d.thick;
+      ctx.lineCap = "round";
+      ctx.strokeStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+
+      // Núcleo interno en twinkle, pero fino y estable (no “bombilla”)
+      if (d.tw > 0) {
+        const coreLen = d.len * d.twCore;
+        const coreY = d.y + d.len * d.twOffset;
+
+        const cx1 = d.x;
+        const cy1 = coreY;
+        const cx2 = d.x + WIND * coreLen;
+        const cy2 = coreY + coreLen;
+
+        const gg = ctx.createLinearGradient(cx1, cy1, cx2, cy2);
+        gg.addColorStop(0.0, `rgba(255,255,255,${0.00})`);
+        gg.addColorStop(0.5, `rgba(255,255,255,${0.35 * a})`);
+        gg.addColorStop(1.0, `rgba(255,255,255,${0.95 * a})`);
+
+        ctx.lineWidth = Math.min(d.thick + 0.55, 2.2);
+        ctx.strokeStyle = gg;
+        ctx.beginPath();
+        ctx.moveTo(cx1, cy1);
+        ctx.lineTo(cx2, cy2);
+        ctx.stroke();
       }
     }
 
-    function tick() {
-      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+    function step() {
+      // Fondo con “trail” en vez de clear, para suavizar parpadeos
+      ctx.globalCompositeOperation = "source-over";
+      ctx.fillStyle = `rgba(10,0,219,${TRAIL_ALPHA})`; // basado en BG
+      ctx.fillRect(0, 0, W, H);
+
+      // Aditivo suave, pero no “navidad”
+      ctx.globalCompositeOperation = "lighter";
 
       for (const d of drops) {
-        // Activar twinkle aleatorio
-        if (d.tw <= 0 && Math.random() < TWINKLE_CHANCE_PER_FRAME) {
-          d.twMax = Math.floor(rand(TWINKLE_FRAMES_MIN, TWINKLE_FRAMES_MAX));
-          d.tw = d.twMax;
-        }
-
         drawDrop(d);
 
         d.y += d.speed;
+        d.x += WIND * d.speed;
 
-        if (d.y > window.innerHeight + 30) {
-          d.y = -rand(10, 80);
-          d.x = Math.random() * window.innerWidth;
-          d.len = rand(10, 26);
-          d.w = rand(1, 2.2);
-          d.speed = rand(3.2, 7.2);
-          d.tw = 0;
-          d.twMax = 0;
+        if (d.y > H + 40 || d.x < -60 || d.x > W + 60) {
+          spawnDrop(d);
         }
       }
 
-      requestAnimationFrame(tick);
+      requestAnimationFrame(step);
     }
 
-    tick();
+    // Pintar fondo sólido al inicio
+    ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = BG;
+    ctx.fillRect(0, 0, W, H);
+
+    step();
 
     // Click para volver a home
     document.addEventListener("click", () => {
@@ -160,3 +195,4 @@
   </script>
 </body>
 </html>
+
