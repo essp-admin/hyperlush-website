@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
   <title>Hyperlush</title>
   <style>
     html, body {
@@ -10,100 +10,68 @@
       height: 100%;
       background: #0a00db;
       overflow: hidden;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
     }
 
-    canvas#rain {
+    canvas#screen {
       position: fixed;
       inset: 0;
       width: 100vw;
       height: 100vh;
       image-rendering: pixelated;
       image-rendering: crisp-edges;
-    }
-
-    /* HUD 8-bit minimal */
-    .hud {
-      position: fixed;
-      left: 16px;
-      top: 16px;
-      color: #ffffff;
-      font-size: 12px;
-      letter-spacing: 0.06em;
-      user-select: none;
-      pointer-events: none;
-      text-transform: uppercase;
-      text-shadow: 0 1px 0 rgba(0,0,0,0.35);
-    }
-
-    .hud .line {
-      opacity: 0.9;
-      margin-top: 6px;
-    }
-
-    .hud .hint {
-      opacity: 0.75;
-    }
-
-    .hud .status {
-      margin-top: 10px;
-      opacity: 0.95;
+      cursor: crosshair;
     }
   </style>
 </head>
 
 <body>
-  <canvas id="rain"></canvas>
-
-  <div class="hud" id="hud">
-    <div>ALIGN SIGNAL</div>
-    <div class="line hint">CLICK / SPACE TO LOCK</div>
-    <div class="line hint">HOLD STEADY</div>
-    <div class="status" id="status">ATTEMPTS: 3</div>
-  </div>
+  <canvas id="screen"></canvas>
 
   <script>
-    const canvas = document.getElementById("rain");
+    const canvas = document.getElementById("screen");
     const ctx = canvas.getContext("2d", { alpha: false });
 
-    // Canvas interno (baja resolución) para pixel look
+    // Buffer interno para pixel look
     const buf = document.createElement("canvas");
     const bctx = buf.getContext("2d", { alpha: true });
 
+    // Ajusta pixelación
     const PIXEL_SCALE = 6; // 5-10
 
+    // Colores
+    const BG = "#0a00db";
+    const WHITE = "#ffffff";
+    const DIM = "#cfd6ff";
+
+    // Lluvia
     let drops = [];
     let W = 0, H = 0;
-
-    const COLOR_MAIN = "#ffffff";
-    const COLOR_DIM  = "#cfd6ff";
 
     const SPARK_CHANCE_PER_FRAME = 0.01;
     const SPARK_FRAMES_MIN = 3;
     const SPARK_FRAMES_MAX = 7;
 
-    // GAME: ALIGN SIGNAL
-    const hud = document.getElementById("hud");
-    const statusEl = document.getElementById("status");
-
-    let gameState = "playing"; // playing | success
-    let attempts = 3;
-
-    let cursorX = 0;
-    let cursorV = 0.45; // velocidad en px del buffer
-    let cursorDir = 1;
-
-    // Centro objetivo y tolerancia (en píxeles de buffer)
-    let targetX = 0;
-    let tolerance = 2; // 2-4 recomendado con PIXEL_SCALE 6
-
-    // Un pequeño "marco" para que no sea demasiado fácil
-    function resetTarget() {
-      // objetivo cerca del centro, con un pequeño jitter
-      const center = (W / 2) | 0;
-      const jitter = ((Math.random() * 9) | 0) - 4; // -4..4
-      targetX = Math.max(2, Math.min(W - 3, center + jitter));
-    }
+    // Juego: ALIGN SIGNAL
+    const game = {
+      attempts: 3,
+      locked: false,
+      lockedBy: "none", // "space" o "mouse"
+      // Zona objetivo
+      boxSize: 18,       // en pixeles de buffer
+      tolerance: 0,      // se usa boxSize, esto queda por si quieres apretar mas
+      // Tiempo de aguante
+      holdNeed: 1.15,    // segundos dentro de la caja
+      holdNow: 0,
+      // Señal
+      sx: 0,
+      sy: 0,
+      vx: 0,
+      vy: 0,
+      // Estado
+      status: "HOLD STEADY",
+      won: false,
+      lastT: performance.now()
+    };
 
     function resize() {
       canvas.width = Math.floor(window.innerWidth);
@@ -115,20 +83,17 @@
       W = buf.width;
       H = buf.height;
 
+      // Ajustes dependientes del tamaño
+      game.boxSize = Math.max(14, Math.min(26, (Math.min(W, H) * 0.08) | 0));
+
       createDrops();
-
-      // Ajustes del juego al nuevo tamaño
-      cursorX = ((Math.random() * W) | 0);
-      resetTarget();
-
-      // Ajusta tolerancia según escala y tamaño
-      tolerance = Math.max(2, Math.min(5, (PIXEL_SCALE / 2) | 0));
-      updateHUD();
+      resetSignal(true);
     }
 
     function createDrops() {
-      const total = Math.floor((W * H) / 90);
+      const total = Math.floor((W * H) / 90); // densidad
       drops = [];
+
       for (let i = 0; i < total; i++) {
         const len = 2 + (Math.random() * 6) | 0;
         drops.push({
@@ -144,7 +109,7 @@
     }
 
     function drawDrop(d) {
-      bctx.fillStyle = d.bright ? COLOR_MAIN : COLOR_DIM;
+      bctx.fillStyle = d.bright ? WHITE : DIM;
 
       const y0 = d.y;
       if (y0 < H) {
@@ -156,65 +121,280 @@
         const t = 1 - (d.spark / d.sparkMax);
         const s = (t > 0.5) ? 2 : 1;
 
-        bctx.fillStyle = COLOR_MAIN;
-
+        bctx.fillStyle = WHITE;
         const sy = (d.y + ((d.len * 0.3) | 0)) | 0;
-        const sx = d.x;
-
-        bctx.fillRect(sx, sy, s, s);
+        bctx.fillRect(d.x, sy, s, s);
 
         d.spark--;
       }
     }
 
-    function drawAlignGame() {
-      // Zona de juego centrada
-      const boxW = Math.min(W - 6, 44);
-      const boxH = 18;
-      const x0 = ((W - boxW) / 2) | 0;
-      const y0 = ((H - boxH) / 2) | 0;
+    function stepRain() {
+      for (const d of drops) {
+        if (d.spark <= 0 && Math.random() < SPARK_CHANCE_PER_FRAME) {
+          d.sparkMax = SPARK_FRAMES_MIN + ((Math.random() * (SPARK_FRAMES_MAX - SPARK_FRAMES_MIN + 1)) | 0);
+          d.spark = d.sparkMax;
+        }
 
-      // Fondo del panel (semi)
-      bctx.globalAlpha = 0.18;
-      bctx.fillStyle = "#000000";
-      bctx.fillRect(x0, y0, boxW, boxH);
-      bctx.globalAlpha = 1;
+        drawDrop(d);
 
-      // Marco
-      bctx.fillStyle = "#ffffff";
-      bctx.fillRect(x0, y0, boxW, 1);
-      bctx.fillRect(x0, y0 + boxH - 1, boxW, 1);
-      bctx.fillRect(x0, y0, 1, boxH);
-      bctx.fillRect(x0 + boxW - 1, y0, 1, boxH);
+        d.y += d.speed;
 
-      // Línea central objetivo
-      const targetScreenX = x0 + ((boxW / 2) | 0);
-      bctx.fillStyle = "#cfd6ff";
-      bctx.fillRect(targetScreenX, y0 + 2, 1, boxH - 4);
+        if (d.y > H + 10) {
+          d.y = -((Math.random() * 15) | 0);
+          d.x = (Math.random() * W) | 0;
+          d.len = 2 + ((Math.random() * 6) | 0);
+          d.speed = 1 + ((Math.random() * 3) | 0);
+          d.bright = Math.random() < 0.35;
+          d.spark = 0;
+          d.sparkMax = 0;
+        }
+      }
+    }
 
-      // Indicador real del target (pequeño tick)
-      // mapeamos targetX a la caja para que se sienta "signal"
-      // pero el objetivo visual se queda centrado, el targetX es el "offset" real
-      const realTargetX = x0 + (targetX - ((W / 2) | 0)) + ((boxW / 2) | 0);
-      bctx.fillStyle = "#ffffff";
-      bctx.fillRect(realTargetX, y0 + boxH - 4, 1, 2);
+    function resetSignal(first = false) {
+      // Señal empieza fuera del centro para que tenga gracia
+      const cx = (W * 0.5) | 0;
+      const cy = (H * 0.5) | 0;
 
-      // Cursor móvil
-      const cursorScreenX = x0 + (cursorX - ((W / 2) | 0)) + ((boxW / 2) | 0);
-      bctx.fillStyle = "#ffffff";
-      bctx.fillRect(cursorScreenX, y0 + 2, 1, boxH - 4);
+      game.sx = (Math.random() * W) | 0;
+      game.sy = (Math.random() * H) | 0;
 
-      // Pequeños "ticks" 8-bit
-      bctx.fillStyle = "#cfd6ff";
-      for (let i = 4; i < boxW - 4; i += 6) {
-        bctx.fillRect(x0 + i, y0 + 3, 1, 1);
+      // Asegura distancia inicial del centro
+      if (!first) {
+        const dx = game.sx - cx;
+        const dy = game.sy - cy;
+        if ((dx*dx + dy*dy) < (game.boxSize * game.boxSize)) {
+          game.sx = (cx + (game.boxSize * 3)) % W;
+          game.sy = (cy + (game.boxSize * 2)) % H;
+        }
       }
 
-      if (gameState === "success") {
-        // Texto ALIGNED en píxel
-        const msg = "ALIGNED";
-        // Fondo más sólido
-        bctx.globalAlpha = 0.35;
-        bctx.fillStyle = "#000000";
-        bctx.fillRect(x0 +
+      // Velocidad con toque “errático”
+      const base = 0.55 + Math.random() * 0.65;
+      game.vx = (Math.random() < 0.5 ? -1 : 1) * base;
+      game.vy = (Math.random() < 0.5 ? -1 : 1) * (base * (0.8 + Math.random() * 0.6));
 
+      game.holdNow = 0;
+      game.status = "HOLD STEADY";
+    }
+
+    function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+
+    function stepGame(dt) {
+      if (game.won) return;
+
+      const cx = (W * 0.5) | 0;
+      const cy = (H * 0.5) | 0;
+
+      // Movimiento de señal
+      // Si estás en lock, la señal se “resiste” pero sigue moviéndose un poco
+      const lockMul = game.locked ? 0.25 : 1.0;
+
+      // Micro jitter para que no parezca lineal
+      const jitter = game.locked ? 0.02 : 0.06;
+      game.vx += (Math.random() - 0.5) * jitter;
+      game.vy += (Math.random() - 0.5) * jitter;
+
+      // Limita velocidades
+      const vMax = game.locked ? 0.95 : 1.75;
+      game.vx = clamp(game.vx, -vMax, vMax);
+      game.vy = clamp(game.vy, -vMax, vMax);
+
+      game.sx += game.vx * lockMul;
+      game.sy += game.vy * lockMul;
+
+      // Rebote suave en bordes
+      if (game.sx < 1) { game.sx = 1; game.vx *= -1; }
+      if (game.sy < 1) { game.sy = 1; game.vy *= -1; }
+      if (game.sx > W - 2) { game.sx = W - 2; game.vx *= -1; }
+      if (game.sy > H - 2) { game.sy = H - 2; game.vy *= -1; }
+
+      // Condición de alineación
+      const half = (game.boxSize * 0.5) | 0;
+      const inBox =
+        (game.sx >= cx - half) && (game.sx <= cx + half) &&
+        (game.sy >= cy - half) && (game.sy <= cy + half);
+
+      if (game.locked) {
+        if (inBox) {
+          game.holdNow += dt;
+          game.status = "LOCKING";
+
+          if (game.holdNow >= game.holdNeed) {
+            game.won = true;
+            game.status = "SIGNAL LOCKED";
+            // Pequeña pausa y a home
+            setTimeout(() => { window.location.href = "index.html"; }, 650);
+          }
+        } else {
+          // Si se sale, resetea progreso
+          game.holdNow = 0;
+          game.status = "HOLD STEADY";
+        }
+      } else {
+        game.holdNow = 0;
+      }
+    }
+
+    function failAttempt() {
+      game.attempts--;
+      game.locked = false;
+      game.lockedBy = "none";
+      game.holdNow = 0;
+
+      if (game.attempts <= 0) {
+        window.location.href = "index.html";
+        return;
+      }
+
+      // reinicia señal para el siguiente intento
+      resetSignal(false);
+    }
+
+    // Dibujo del overlay del juego (en buffer, para pixel)
+    function drawGame() {
+      const cx = (W * 0.5) | 0;
+      const cy = (H * 0.5) | 0;
+      const half = (game.boxSize * 0.5) | 0;
+
+      // Caja objetivo
+      bctx.fillStyle = DIM;
+      // borde 1px
+      bctx.fillRect(cx - half, cy - half, game.boxSize, 1);
+      bctx.fillRect(cx - half, cy + half, game.boxSize, 1);
+      bctx.fillRect(cx - half, cy - half, 1, game.boxSize);
+      bctx.fillRect(cx + half, cy - half, 1, game.boxSize);
+
+      // Cruz central
+      bctx.fillStyle = DIM;
+      bctx.fillRect(cx - 6, cy, 13, 1);
+      bctx.fillRect(cx, cy - 6, 1, 13);
+
+      // Señal: un “punto” 2x2 y una colita 1px
+      const sx = game.sx | 0;
+      const sy = game.sy | 0;
+
+      bctx.fillStyle = WHITE;
+      bctx.fillRect(sx, sy, 2, 2);
+      bctx.fillRect(sx, sy + 3, 1, 3);
+
+      // Si está locked, añade un “frame” alrededor del punto
+      if (game.locked) {
+        bctx.fillStyle = DIM;
+        bctx.fillRect(sx - 1, sy - 1, 4, 1);
+        bctx.fillRect(sx - 1, sy + 2, 4, 1);
+        bctx.fillRect(sx - 1, sy - 1, 1, 4);
+        bctx.fillRect(sx + 2, sy - 1, 1, 4);
+      }
+
+      // HUD texto
+      bctx.font = "10px monospace";
+      bctx.textBaseline = "top";
+
+      bctx.fillStyle = WHITE;
+      bctx.fillText("ALIGN SIGNAL", 6, 6);
+
+      bctx.fillStyle = DIM;
+      bctx.fillText("CLICK / SPACE TO LOCK", 6, 22);
+
+      bctx.fillStyle = WHITE;
+      bctx.fillText(game.status, 6, 38);
+
+      bctx.fillStyle = DIM;
+      bctx.fillText("ATTEMPTS: " + game.attempts, 6, 54);
+
+      // Barra de progreso al hacer lock
+      if (game.locked) {
+        const w = 80;
+        const h = 6;
+        const x = 6;
+        const y = 70;
+        const p = clamp(game.holdNow / game.holdNeed, 0, 1);
+
+        bctx.fillStyle = DIM;
+        bctx.fillRect(x, y, w, 1);
+        bctx.fillRect(x, y + h, w, 1);
+        bctx.fillRect(x, y, 1, h + 1);
+        bctx.fillRect(x + w, y, 1, h + 1);
+
+        bctx.fillStyle = WHITE;
+        bctx.fillRect(x + 2, y + 2, ((w - 3) * p) | 0, h - 3);
+      }
+    }
+
+    function frame(now) {
+      const dt = Math.min(0.05, (now - game.lastT) / 1000);
+      game.lastT = now;
+
+      // Limpia buffer
+      bctx.clearRect(0, 0, W, H);
+
+      // Fondo lluvia
+      stepRain();
+
+      // Juego
+      stepGame(dt);
+      drawGame();
+
+      // Presenta escalado, sin smoothing
+      ctx.imageSmoothingEnabled = false;
+      ctx.fillStyle = BG;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(buf, 0, 0, canvas.width, canvas.height);
+
+      requestAnimationFrame(frame);
+    }
+
+    // Input
+    function setLock(state, by) {
+      if (game.won) return;
+
+      if (state) {
+        game.locked = true;
+        game.lockedBy = by;
+        return;
+      }
+
+      // Si suelta el lock, cuenta como fallo de intento
+      if (game.locked && game.lockedBy === by) {
+        failAttempt();
+      }
+    }
+
+    document.addEventListener("keydown", (e) => {
+      if (e.code === "Space") {
+        e.preventDefault();
+        if (!e.repeat) setLock(true, "space");
+      }
+    });
+
+    document.addEventListener("keyup", (e) => {
+      if (e.code === "Space") {
+        e.preventDefault();
+        setLock(false, "space");
+      }
+    });
+
+    document.addEventListener("mousedown", (e) => {
+      if (e.button === 0) setLock(true, "mouse");
+    });
+
+    document.addEventListener("mouseup", (e) => {
+      if (e.button === 0) setLock(false, "mouse");
+    });
+
+    // Evita menú contextual que rompe el flow
+    document.addEventListener("contextmenu", (e) => e.preventDefault());
+
+    window.addEventListener("resize", resize);
+
+    // Start
+    resize();
+    requestAnimationFrame((t) => {
+      game.lastT = t;
+      requestAnimationFrame(frame);
+    });
+  </script>
+</body>
+</html>
