@@ -1,170 +1,178 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Hyperlush</title>
-  <style>
-    html, body {
-      margin: 0;
-      height: 100%;
-      background: #0a00db;
-      overflow: hidden;
+<!-- MINIGAME: 8-bit password gate (remove whole block if you dislike it) -->
+<style>
+  #gate {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: rgba(10, 0, 219, 0.0); /* transparente para ver la lluvia */
+    pointer-events: none; /* no bloquea clicks si no quieres */
+  }
+
+  #gateBox {
+    pointer-events: auto;
+    user-select: none;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: 14px;
+    line-height: 1.2;
+    color: #fff;
+    text-align: center;
+    padding: 14px 16px;
+    border: 1px solid rgba(255,255,255,0.35);
+    background: rgba(0,0,0,0.18);
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.06) inset;
+    width: min(520px, calc(100vw - 32px));
+  }
+
+  #gateTitle {
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+    opacity: 0.95;
+  }
+
+  #gateHint {
+    opacity: 0.75;
+    margin-bottom: 10px;
+  }
+
+  #gateProgress {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    align-items: center;
+  }
+
+  #gateWord {
+    letter-spacing: 0.25em;
+    padding: 10px 12px;
+    border: 1px dashed rgba(255,255,255,0.35);
+    background: rgba(0,0,0,0.16);
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  #gateCount {
+    opacity: 0.85;
+    font-size: 12px;
+  }
+
+  #gateSmall {
+    margin-top: 10px;
+    font-size: 12px;
+    opacity: 0.65;
+  }
+
+  /* mini parpadeo 8-bit */
+  .blink {
+    animation: blink 1s steps(1) infinite;
+  }
+  @keyframes blink {
+    50% { opacity: 0; }
+  }
+
+  /* fade out al completar */
+  .gateDone {
+    animation: gateFade 380ms ease-out forwards;
+  }
+  @keyframes gateFade {
+    to { opacity: 0; transform: scale(0.98); }
+  }
+</style>
+
+<div id="gate" aria-hidden="true">
+  <div id="gateBox">
+    <div id="gateTitle">ACCESS LOCK</div>
+    <div id="gateHint">Type the key to exit <span class="blink">_</span></div>
+
+    <div id="gateProgress">
+      <div id="gateWord">_ _ _ _ _ _ _ _</div>
+      <div id="gateCount">0 / 8</div>
+    </div>
+
+    <div id="gateSmall">Enter: confirm, Backspace: undo, Esc: skip</div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    // Config
+    const TARGET = "HYPERLUSH"; // cambia la palabra si quieres
+    const HOME_URL = "index.html";
+
+    const gate = document.getElementById("gate");
+    const box = document.getElementById("gateBox");
+    const wordEl = document.getElementById("gateWord");
+    const countEl = document.getElementById("gateCount");
+
+    let buffer = "";
+
+    // si quieres que el overlay capture clicks/teclas siempre
+    // (ahora mismo el overlay no bloquea click por pointer-events en #gate, pero el box sí)
+    // puedes activar pointer-events en #gate si lo prefieres.
+
+    function render() {
+      const shown = [];
+      for (let i = 0; i < TARGET.length; i++) {
+        const c = buffer[i] ? buffer[i] : "_";
+        shown.push(c);
+      }
+      wordEl.textContent = shown.join(" ");
+      countEl.textContent = buffer.length + " / " + TARGET.length;
     }
 
-    /* Canvas final a pantalla completa */
-    canvas#rain {
-      position: fixed;
-      inset: 0;
-      width: 100vw;
-      height: 100vh;
-
-      /* Clave para look pixel */
-      image-rendering: pixelated;
-      image-rendering: crisp-edges;
-    }
-  </style>
-</head>
-
-<body>
-  <canvas id="rain"></canvas>
-
-  <script>
-    const canvas = document.getElementById("rain");
-    const ctx = canvas.getContext("2d", { alpha: false });
-
-    // Canvas interno (baja resolución) para pixel look
-    const buf = document.createElement("canvas");
-    const bctx = buf.getContext("2d", { alpha: true });
-
-    // Ajusta esto: más alto = menos pixel (más definido), más bajo = más 8-bit
-    const PIXEL_SCALE = 6; // prueba 5–10
-
-    // Lluvia: cantidad en función del tamaño del buffer
-    let drops = [];
-    let W = 0, H = 0;
-
-    // Paleta 8-bit (blanco y “blanco sucio”)
-    const COLOR_MAIN = "#ffffff";
-    const COLOR_DIM  = "#cfd6ff";
-
-    // “Spark” muy discreto, sin glow
-    const SPARK_CHANCE_PER_FRAME = 0.01; // prueba 0.006–0.02
-    const SPARK_FRAMES_MIN = 3;
-    const SPARK_FRAMES_MAX = 7;
-
-    function resize() {
-      canvas.width = Math.floor(window.innerWidth);
-      canvas.height = Math.floor(window.innerHeight);
-
-      buf.width = Math.max(1, Math.floor(canvas.width / PIXEL_SCALE));
-      buf.height = Math.max(1, Math.floor(canvas.height / PIXEL_SCALE));
-
-      W = buf.width;
-      H = buf.height;
-
-      // Rebuild drops según tamaño
-      createDrops();
+    function done() {
+      box.classList.add("gateDone");
+      setTimeout(() => {
+        window.location.href = HOME_URL;
+      }, 360);
     }
 
-    function createDrops() {
-      // Densidad: ajusta a gusto
-      const total = Math.floor((W * H) / 90); // prueba /70 más lluvia, /120 menos
-      drops = [];
-
-      for (let i = 0; i < total; i++) {
-        const len = 2 + (Math.random() * 6) | 0; // longitud en “píxeles”
-        drops.push({
-          x: (Math.random() * W) | 0,
-          y: (Math.random() * H) | 0,
-          len,
-          speed: 1 + (Math.random() * 3) | 0, // 1..3
-          bright: Math.random() < 0.35,        // mezcla blanco/dim
-          spark: 0,
-          sparkMax: 0
-        });
+    function resetIfWrongPrefix() {
+      // si no coincide el prefijo, reset rápido (sensación arcade)
+      if (TARGET.indexOf(buffer) !== 0) {
+        buffer = "";
+        render();
       }
     }
 
-    // Dibuja un “segmento” vertical pixel
-    function drawDrop(d) {
-      bctx.fillStyle = d.bright ? COLOR_MAIN : COLOR_DIM;
-
-      // línea vertical 1px de ancho
-      // se dibuja de y a y+len, clamp dentro del buffer
-      const y0 = d.y;
-      const y1 = d.y + d.len;
-
-      // Si se sale por abajo, dibuja lo visible y lo demás al reaparecer
-      if (y0 < H) {
-        const drawLen = Math.min(d.len, H - y0);
-        if (drawLen > 0) bctx.fillRect(d.x, y0, 1, drawLen);
+    // input
+    window.addEventListener("keydown", (e) => {
+      // Skip rápido
+      if (e.key === "Escape") {
+        window.location.href = HOME_URL;
+        return;
       }
 
-      // Spark: 1px o 2x2, muy “8-bit”
-      if (d.spark > 0) {
-        const t = 1 - (d.spark / d.sparkMax); // 0..1
-        // alterna tamaño entre 1 y 2 para “parpadeo” sin glow
-        const s = (t > 0.5) ? 2 : 1;
-
-        bctx.fillStyle = COLOR_MAIN;
-
-        // spark cerca de la “cabeza” o mitad alta
-        const sy = (d.y + ((d.len * 0.3) | 0)) | 0;
-        const sx = d.x;
-
-        bctx.fillRect(sx, sy, s, s);
-
-        d.spark--;
+      if (e.key === "Backspace") {
+        buffer = buffer.slice(0, -1);
+        render();
+        e.preventDefault();
+        return;
       }
-    }
 
-    function step() {
-      // Fondo sólido en buffer
-      bctx.clearRect(0, 0, W, H);
+      if (e.key === "Enter") {
+        if (buffer === TARGET) done();
+        return;
+      }
 
-      for (const d of drops) {
-        // activar spark
-        if (d.spark <= 0 && Math.random() < SPARK_CHANCE_PER_FRAME) {
-          d.sparkMax = SPARK_FRAMES_MIN + ((Math.random() * (SPARK_FRAMES_MAX - SPARK_FRAMES_MIN + 1)) | 0);
-          d.spark = d.sparkMax;
+      // Acepta solo letras A-Z
+      const k = e.key;
+      if (k.length === 1) {
+        const upper = k.toUpperCase();
+        if (upper >= "A" && upper <= "Z") {
+          if (buffer.length < TARGET.length) {
+            buffer += upper;
+            render();
+            resetIfWrongPrefix();
+            if (buffer === TARGET) done();
+          }
+          e.preventDefault();
         }
-
-        drawDrop(d);
-
-        // mover
-        d.y += d.speed;
-
-        // respawn
-        if (d.y > H + 10) {
-          d.y = -((Math.random() * 15) | 0);
-          d.x = (Math.random() * W) | 0;
-          d.len = 2 + ((Math.random() * 6) | 0);
-          d.speed = 1 + ((Math.random() * 3) | 0);
-          d.bright = Math.random() < 0.35;
-          d.spark = 0;
-          d.sparkMax = 0;
-        }
       }
-
-      // Pintar buffer escalado a pantalla, sin suavizado
-      ctx.imageSmoothingEnabled = false;
-      ctx.fillStyle = "#0a00db";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(buf, 0, 0, canvas.width, canvas.height);
-
-      requestAnimationFrame(step);
-    }
-
-    // Click para volver a home
-    document.addEventListener("click", () => {
-      window.location.href = "index.html";
     });
 
-    window.addEventListener("resize", resize);
-    resize();
-    step();
-  </script>
-</body>
-</html>
+    render();
+  })();
+</script>
+<!-- END MINIGAME -->
 
