@@ -11,187 +11,159 @@
       background: #0a00db;
       overflow: hidden;
     }
-    canvas {
+
+    /* Canvas final a pantalla completa */
+    canvas#rain {
       position: fixed;
       inset: 0;
-      display: block;
+      width: 100vw;
+      height: 100vh;
+
+      /* Clave para look pixel */
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
     }
   </style>
 </head>
+
 <body>
   <canvas id="rain"></canvas>
 
   <script>
     const canvas = document.getElementById("rain");
-    const ctx = canvas.getContext("2d", { alpha: true });
+    const ctx = canvas.getContext("2d", { alpha: false });
 
-    // --------- AJUSTES (toca aquí) ----------
-    const BG = "#0a00db";
+    // Canvas interno (baja resolución) para pixel look
+    const buf = document.createElement("canvas");
+    const bctx = buf.getContext("2d", { alpha: true });
 
-    const DROP_COUNT = 420;       // densidad
-    const SPEED_MIN = 2.8;
-    const SPEED_MAX = 6.2;
+    // Ajusta esto: más alto = menos pixel (más definido), más bajo = más 8-bit
+    const PIXEL_SCALE = 6; // prueba 5–10
 
-    const LEN_MIN = 10;
-    const LEN_MAX = 26;
+    // Lluvia: cantidad en función del tamaño del buffer
+    let drops = [];
+    let W = 0, H = 0;
 
-    const THICK_MIN = 0.8;        // grosor fino para evitar “bolas”
-    const THICK_MAX = 1.6;
+    // Paleta 8-bit (blanco y “blanco sucio”)
+    const COLOR_MAIN = "#ffffff";
+    const COLOR_DIM  = "#cfd6ff";
 
-    const WIND = 0.15;            // 0 = vertical total, 0.1–0.3 = ligera diagonal
-
-    const TRAIL_ALPHA = 0.18;     // más bajo = más estela, más alto = más “seco”
-
-    // Twinkle sutil, sin “bombillas”
-    const TWINKLE_CHANCE = 0.006; // 0.004–0.01
-    const TWINKLE_FRAMES_MIN = 10;
-    const TWINKLE_FRAMES_MAX = 22;
-    const TWINKLE_GAIN = 0.45;    // cuánto sube el brillo en twinkle (0.25–0.6)
-    // --------------------------------------
-
-    let W = 0, H = 0, DPR = 1;
+    // “Spark” muy discreto, sin glow
+    const SPARK_CHANCE_PER_FRAME = 0.01; // prueba 0.006–0.02
+    const SPARK_FRAMES_MIN = 3;
+    const SPARK_FRAMES_MAX = 7;
 
     function resize() {
-      DPR = Math.min(2, window.devicePixelRatio || 1);
-      W = Math.floor(window.innerWidth);
-      H = Math.floor(window.innerHeight);
-      canvas.width = Math.floor(W * DPR);
-      canvas.height = Math.floor(H * DPR);
-      canvas.style.width = W + "px";
-      canvas.style.height = H + "px";
-      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-      ctx.imageSmoothingEnabled = true;
-    }
-    resize();
-    window.addEventListener("resize", resize);
+      canvas.width = Math.floor(window.innerWidth);
+      canvas.height = Math.floor(window.innerHeight);
 
-    function rand(a, b) { return a + Math.random() * (b - a); }
-    function randi(a, b) { return Math.floor(rand(a, b + 1)); }
+      buf.width = Math.max(1, Math.floor(canvas.width / PIXEL_SCALE));
+      buf.height = Math.max(1, Math.floor(canvas.height / PIXEL_SCALE));
 
-    // Curva suave 0→1→0
-    function pulse01(t) { return Math.sin(Math.PI * t); }
+      W = buf.width;
+      H = buf.height;
 
-    const drops = [];
-    function spawnDrop(d) {
-      d.x = Math.random() * W;
-      d.y = -Math.random() * H;
-      d.len = rand(LEN_MIN, LEN_MAX);
-      d.thick = rand(THICK_MIN, THICK_MAX);
-      d.speed = rand(SPEED_MIN, SPEED_MAX);
-
-      // twinkle
-      d.tw = 0;
-      d.twMax = 0;
-      d.twOffset = rand(0.15, 0.55);   // núcleo fijo dentro de la gota
-      d.twCore = rand(0.18, 0.28);     // longitud relativa del núcleo (fija)
+      // Rebuild drops según tamaño
+      createDrops();
     }
 
-    function init() {
-      drops.length = 0;
-      for (let i = 0; i < DROP_COUNT; i++) {
-        const d = {};
-        spawnDrop(d);
-        d.y = Math.random() * H;
-        drops.push(d);
+    function createDrops() {
+      // Densidad: ajusta a gusto
+      const total = Math.floor((W * H) / 90); // prueba /70 más lluvia, /120 menos
+      drops = [];
+
+      for (let i = 0; i < total; i++) {
+        const len = 2 + (Math.random() * 6) | 0; // longitud en “píxeles”
+        drops.push({
+          x: (Math.random() * W) | 0,
+          y: (Math.random() * H) | 0,
+          len,
+          speed: 1 + (Math.random() * 3) | 0, // 1..3
+          bright: Math.random() < 0.35,        // mezcla blanco/dim
+          spark: 0,
+          sparkMax: 0
+        });
       }
     }
-    init();
 
+    // Dibuja un “segmento” vertical pixel
     function drawDrop(d) {
-      // Base alpha ligera para que no “queme”
-      let a = 0.62;
+      bctx.fillStyle = d.bright ? COLOR_MAIN : COLOR_DIM;
 
-      // Activar twinkle con duración fija (sin random por frame)
-      if (d.tw <= 0 && Math.random() < TWINKLE_CHANCE) {
-        d.twMax = randi(TWINKLE_FRAMES_MIN, TWINKLE_FRAMES_MAX);
-        d.tw = d.twMax;
+      // línea vertical 1px de ancho
+      // se dibuja de y a y+len, clamp dentro del buffer
+      const y0 = d.y;
+      const y1 = d.y + d.len;
+
+      // Si se sale por abajo, dibuja lo visible y lo demás al reaparecer
+      if (y0 < H) {
+        const drawLen = Math.min(d.len, H - y0);
+        if (drawLen > 0) bctx.fillRect(d.x, y0, 1, drawLen);
       }
 
-      // Twinkle suave: sube el brillo pero sigue siendo “streak”
-      if (d.tw > 0) {
-        const life = (d.twMax - d.tw) / d.twMax; // 0..1
-        a += TWINKLE_GAIN * pulse01(life);
-        d.tw--;
-      }
+      // Spark: 1px o 2x2, muy “8-bit”
+      if (d.spark > 0) {
+        const t = 1 - (d.spark / d.sparkMax); // 0..1
+        // alterna tamaño entre 1 y 2 para “parpadeo” sin glow
+        const s = (t > 0.5) ? 2 : 1;
 
-      // Dibujar como línea con gradiente (evita el look “píxel/cuadrado”)
-      const x1 = d.x;
-      const y1 = d.y;
-      const x2 = d.x + WIND * d.len;
-      const y2 = d.y + d.len;
+        bctx.fillStyle = COLOR_MAIN;
 
-      // Gradiente: cola más tenue, cabeza más brillante
-      const g = ctx.createLinearGradient(x1, y1, x2, y2);
-      g.addColorStop(0.0, `rgba(255,255,255,${0.00})`);
-      g.addColorStop(0.35, `rgba(255,255,255,${0.18 * a})`);
-      g.addColorStop(1.0, `rgba(255,255,255,${0.70 * a})`);
+        // spark cerca de la “cabeza” o mitad alta
+        const sy = (d.y + ((d.len * 0.3) | 0)) | 0;
+        const sx = d.x;
 
-      ctx.lineWidth = d.thick;
-      ctx.lineCap = "round";
-      ctx.strokeStyle = g;
-      ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
-      ctx.stroke();
+        bctx.fillRect(sx, sy, s, s);
 
-      // Núcleo interno en twinkle, pero fino y estable (no “bombilla”)
-      if (d.tw > 0) {
-        const coreLen = d.len * d.twCore;
-        const coreY = d.y + d.len * d.twOffset;
-
-        const cx1 = d.x;
-        const cy1 = coreY;
-        const cx2 = d.x + WIND * coreLen;
-        const cy2 = coreY + coreLen;
-
-        const gg = ctx.createLinearGradient(cx1, cy1, cx2, cy2);
-        gg.addColorStop(0.0, `rgba(255,255,255,${0.00})`);
-        gg.addColorStop(0.5, `rgba(255,255,255,${0.35 * a})`);
-        gg.addColorStop(1.0, `rgba(255,255,255,${0.95 * a})`);
-
-        ctx.lineWidth = Math.min(d.thick + 0.55, 2.2);
-        ctx.strokeStyle = gg;
-        ctx.beginPath();
-        ctx.moveTo(cx1, cy1);
-        ctx.lineTo(cx2, cy2);
-        ctx.stroke();
+        d.spark--;
       }
     }
 
     function step() {
-      // Fondo con “trail” en vez de clear, para suavizar parpadeos
-      ctx.globalCompositeOperation = "source-over";
-      ctx.fillStyle = `rgba(10,0,219,${TRAIL_ALPHA})`; // basado en BG
-      ctx.fillRect(0, 0, W, H);
-
-      // Aditivo suave, pero no “navidad”
-      ctx.globalCompositeOperation = "lighter";
+      // Fondo sólido en buffer
+      bctx.clearRect(0, 0, W, H);
 
       for (const d of drops) {
+        // activar spark
+        if (d.spark <= 0 && Math.random() < SPARK_CHANCE_PER_FRAME) {
+          d.sparkMax = SPARK_FRAMES_MIN + ((Math.random() * (SPARK_FRAMES_MAX - SPARK_FRAMES_MIN + 1)) | 0);
+          d.spark = d.sparkMax;
+        }
+
         drawDrop(d);
 
+        // mover
         d.y += d.speed;
-        d.x += WIND * d.speed;
 
-        if (d.y > H + 40 || d.x < -60 || d.x > W + 60) {
-          spawnDrop(d);
+        // respawn
+        if (d.y > H + 10) {
+          d.y = -((Math.random() * 15) | 0);
+          d.x = (Math.random() * W) | 0;
+          d.len = 2 + ((Math.random() * 6) | 0);
+          d.speed = 1 + ((Math.random() * 3) | 0);
+          d.bright = Math.random() < 0.35;
+          d.spark = 0;
+          d.sparkMax = 0;
         }
       }
 
+      // Pintar buffer escalado a pantalla, sin suavizado
+      ctx.imageSmoothingEnabled = false;
+      ctx.fillStyle = "#0a00db";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(buf, 0, 0, canvas.width, canvas.height);
+
       requestAnimationFrame(step);
     }
-
-    // Pintar fondo sólido al inicio
-    ctx.globalCompositeOperation = "source-over";
-    ctx.fillStyle = BG;
-    ctx.fillRect(0, 0, W, H);
-
-    step();
 
     // Click para volver a home
     document.addEventListener("click", () => {
       window.location.href = "index.html";
     });
+
+    window.addEventListener("resize", resize);
+    resize();
+    step();
   </script>
 </body>
 </html>
