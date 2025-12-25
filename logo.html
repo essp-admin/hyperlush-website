@@ -1,178 +1,220 @@
-<!-- MINIGAME: 8-bit password gate (remove whole block if you dislike it) -->
-<style>
-  #gate {
-    position: fixed;
-    inset: 0;
-    display: grid;
-    place-items: center;
-    background: rgba(10, 0, 219, 0.0); /* transparente para ver la lluvia */
-    pointer-events: none; /* no bloquea clicks si no quieres */
-  }
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hyperlush</title>
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #0a00db;
+      overflow: hidden;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
 
-  #gateBox {
-    pointer-events: auto;
-    user-select: none;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-    font-size: 14px;
-    line-height: 1.2;
-    color: #fff;
-    text-align: center;
-    padding: 14px 16px;
-    border: 1px solid rgba(255,255,255,0.35);
-    background: rgba(0,0,0,0.18);
-    box-shadow: 0 0 0 2px rgba(255,255,255,0.06) inset;
-    width: min(520px, calc(100vw - 32px));
-  }
+    canvas#rain {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
 
-  #gateTitle {
-    letter-spacing: 0.08em;
-    margin-bottom: 10px;
-    opacity: 0.95;
-  }
+    /* HUD 8-bit minimal */
+    .hud {
+      position: fixed;
+      left: 16px;
+      top: 16px;
+      color: #ffffff;
+      font-size: 12px;
+      letter-spacing: 0.06em;
+      user-select: none;
+      pointer-events: none;
+      text-transform: uppercase;
+      text-shadow: 0 1px 0 rgba(0,0,0,0.35);
+    }
 
-  #gateHint {
-    opacity: 0.75;
-    margin-bottom: 10px;
-  }
+    .hud .line {
+      opacity: 0.9;
+      margin-top: 6px;
+    }
 
-  #gateProgress {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 10px;
-    align-items: center;
-  }
+    .hud .hint {
+      opacity: 0.75;
+    }
 
-  #gateWord {
-    letter-spacing: 0.25em;
-    padding: 10px 12px;
-    border: 1px dashed rgba(255,255,255,0.35);
-    background: rgba(0,0,0,0.16);
-    overflow: hidden;
-    white-space: nowrap;
-  }
+    .hud .status {
+      margin-top: 10px;
+      opacity: 0.95;
+    }
+  </style>
+</head>
 
-  #gateCount {
-    opacity: 0.85;
-    font-size: 12px;
-  }
+<body>
+  <canvas id="rain"></canvas>
 
-  #gateSmall {
-    margin-top: 10px;
-    font-size: 12px;
-    opacity: 0.65;
-  }
-
-  /* mini parpadeo 8-bit */
-  .blink {
-    animation: blink 1s steps(1) infinite;
-  }
-  @keyframes blink {
-    50% { opacity: 0; }
-  }
-
-  /* fade out al completar */
-  .gateDone {
-    animation: gateFade 380ms ease-out forwards;
-  }
-  @keyframes gateFade {
-    to { opacity: 0; transform: scale(0.98); }
-  }
-</style>
-
-<div id="gate" aria-hidden="true">
-  <div id="gateBox">
-    <div id="gateTitle">ACCESS LOCK</div>
-    <div id="gateHint">Type the key to exit <span class="blink">_</span></div>
-
-    <div id="gateProgress">
-      <div id="gateWord">_ _ _ _ _ _ _ _</div>
-      <div id="gateCount">0 / 8</div>
-    </div>
-
-    <div id="gateSmall">Enter: confirm, Backspace: undo, Esc: skip</div>
+  <div class="hud" id="hud">
+    <div>ALIGN SIGNAL</div>
+    <div class="line hint">CLICK / SPACE TO LOCK</div>
+    <div class="line hint">HOLD STEADY</div>
+    <div class="status" id="status">ATTEMPTS: 3</div>
   </div>
-</div>
 
-<script>
-  (function () {
-    // Config
-    const TARGET = "HYPERLUSH"; // cambia la palabra si quieres
-    const HOME_URL = "index.html";
+  <script>
+    const canvas = document.getElementById("rain");
+    const ctx = canvas.getContext("2d", { alpha: false });
 
-    const gate = document.getElementById("gate");
-    const box = document.getElementById("gateBox");
-    const wordEl = document.getElementById("gateWord");
-    const countEl = document.getElementById("gateCount");
+    // Canvas interno (baja resolución) para pixel look
+    const buf = document.createElement("canvas");
+    const bctx = buf.getContext("2d", { alpha: true });
 
-    let buffer = "";
+    const PIXEL_SCALE = 6; // 5-10
 
-    // si quieres que el overlay capture clicks/teclas siempre
-    // (ahora mismo el overlay no bloquea click por pointer-events en #gate, pero el box sí)
-    // puedes activar pointer-events en #gate si lo prefieres.
+    let drops = [];
+    let W = 0, H = 0;
 
-    function render() {
-      const shown = [];
-      for (let i = 0; i < TARGET.length; i++) {
-        const c = buffer[i] ? buffer[i] : "_";
-        shown.push(c);
-      }
-      wordEl.textContent = shown.join(" ");
-      countEl.textContent = buffer.length + " / " + TARGET.length;
+    const COLOR_MAIN = "#ffffff";
+    const COLOR_DIM  = "#cfd6ff";
+
+    const SPARK_CHANCE_PER_FRAME = 0.01;
+    const SPARK_FRAMES_MIN = 3;
+    const SPARK_FRAMES_MAX = 7;
+
+    // GAME: ALIGN SIGNAL
+    const hud = document.getElementById("hud");
+    const statusEl = document.getElementById("status");
+
+    let gameState = "playing"; // playing | success
+    let attempts = 3;
+
+    let cursorX = 0;
+    let cursorV = 0.45; // velocidad en px del buffer
+    let cursorDir = 1;
+
+    // Centro objetivo y tolerancia (en píxeles de buffer)
+    let targetX = 0;
+    let tolerance = 2; // 2-4 recomendado con PIXEL_SCALE 6
+
+    // Un pequeño "marco" para que no sea demasiado fácil
+    function resetTarget() {
+      // objetivo cerca del centro, con un pequeño jitter
+      const center = (W / 2) | 0;
+      const jitter = ((Math.random() * 9) | 0) - 4; // -4..4
+      targetX = Math.max(2, Math.min(W - 3, center + jitter));
     }
 
-    function done() {
-      box.classList.add("gateDone");
-      setTimeout(() => {
-        window.location.href = HOME_URL;
-      }, 360);
+    function resize() {
+      canvas.width = Math.floor(window.innerWidth);
+      canvas.height = Math.floor(window.innerHeight);
+
+      buf.width = Math.max(1, Math.floor(canvas.width / PIXEL_SCALE));
+      buf.height = Math.max(1, Math.floor(canvas.height / PIXEL_SCALE));
+
+      W = buf.width;
+      H = buf.height;
+
+      createDrops();
+
+      // Ajustes del juego al nuevo tamaño
+      cursorX = ((Math.random() * W) | 0);
+      resetTarget();
+
+      // Ajusta tolerancia según escala y tamaño
+      tolerance = Math.max(2, Math.min(5, (PIXEL_SCALE / 2) | 0));
+      updateHUD();
     }
 
-    function resetIfWrongPrefix() {
-      // si no coincide el prefijo, reset rápido (sensación arcade)
-      if (TARGET.indexOf(buffer) !== 0) {
-        buffer = "";
-        render();
+    function createDrops() {
+      const total = Math.floor((W * H) / 90);
+      drops = [];
+      for (let i = 0; i < total; i++) {
+        const len = 2 + (Math.random() * 6) | 0;
+        drops.push({
+          x: (Math.random() * W) | 0,
+          y: (Math.random() * H) | 0,
+          len,
+          speed: 1 + (Math.random() * 3) | 0,
+          bright: Math.random() < 0.35,
+          spark: 0,
+          sparkMax: 0
+        });
       }
     }
 
-    // input
-    window.addEventListener("keydown", (e) => {
-      // Skip rápido
-      if (e.key === "Escape") {
-        window.location.href = HOME_URL;
-        return;
+    function drawDrop(d) {
+      bctx.fillStyle = d.bright ? COLOR_MAIN : COLOR_DIM;
+
+      const y0 = d.y;
+      if (y0 < H) {
+        const drawLen = Math.min(d.len, H - y0);
+        if (drawLen > 0) bctx.fillRect(d.x, y0, 1, drawLen);
       }
 
-      if (e.key === "Backspace") {
-        buffer = buffer.slice(0, -1);
-        render();
-        e.preventDefault();
-        return;
+      if (d.spark > 0) {
+        const t = 1 - (d.spark / d.sparkMax);
+        const s = (t > 0.5) ? 2 : 1;
+
+        bctx.fillStyle = COLOR_MAIN;
+
+        const sy = (d.y + ((d.len * 0.3) | 0)) | 0;
+        const sx = d.x;
+
+        bctx.fillRect(sx, sy, s, s);
+
+        d.spark--;
+      }
+    }
+
+    function drawAlignGame() {
+      // Zona de juego centrada
+      const boxW = Math.min(W - 6, 44);
+      const boxH = 18;
+      const x0 = ((W - boxW) / 2) | 0;
+      const y0 = ((H - boxH) / 2) | 0;
+
+      // Fondo del panel (semi)
+      bctx.globalAlpha = 0.18;
+      bctx.fillStyle = "#000000";
+      bctx.fillRect(x0, y0, boxW, boxH);
+      bctx.globalAlpha = 1;
+
+      // Marco
+      bctx.fillStyle = "#ffffff";
+      bctx.fillRect(x0, y0, boxW, 1);
+      bctx.fillRect(x0, y0 + boxH - 1, boxW, 1);
+      bctx.fillRect(x0, y0, 1, boxH);
+      bctx.fillRect(x0 + boxW - 1, y0, 1, boxH);
+
+      // Línea central objetivo
+      const targetScreenX = x0 + ((boxW / 2) | 0);
+      bctx.fillStyle = "#cfd6ff";
+      bctx.fillRect(targetScreenX, y0 + 2, 1, boxH - 4);
+
+      // Indicador real del target (pequeño tick)
+      // mapeamos targetX a la caja para que se sienta "signal"
+      // pero el objetivo visual se queda centrado, el targetX es el "offset" real
+      const realTargetX = x0 + (targetX - ((W / 2) | 0)) + ((boxW / 2) | 0);
+      bctx.fillStyle = "#ffffff";
+      bctx.fillRect(realTargetX, y0 + boxH - 4, 1, 2);
+
+      // Cursor móvil
+      const cursorScreenX = x0 + (cursorX - ((W / 2) | 0)) + ((boxW / 2) | 0);
+      bctx.fillStyle = "#ffffff";
+      bctx.fillRect(cursorScreenX, y0 + 2, 1, boxH - 4);
+
+      // Pequeños "ticks" 8-bit
+      bctx.fillStyle = "#cfd6ff";
+      for (let i = 4; i < boxW - 4; i += 6) {
+        bctx.fillRect(x0 + i, y0 + 3, 1, 1);
       }
 
-      if (e.key === "Enter") {
-        if (buffer === TARGET) done();
-        return;
-      }
-
-      // Acepta solo letras A-Z
-      const k = e.key;
-      if (k.length === 1) {
-        const upper = k.toUpperCase();
-        if (upper >= "A" && upper <= "Z") {
-          if (buffer.length < TARGET.length) {
-            buffer += upper;
-            render();
-            resetIfWrongPrefix();
-            if (buffer === TARGET) done();
-          }
-          e.preventDefault();
-        }
-      }
-    });
-
-    render();
-  })();
-</script>
-<!-- END MINIGAME -->
+      if (gameState === "success") {
+        // Texto ALIGNED en píxel
+        const msg = "ALIGNED";
+        // Fondo más sólido
+        bctx.globalAlpha = 0.35;
+        bctx.fillStyle = "#000000";
+        bctx.fillRect(x0 +
 
