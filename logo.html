@@ -1,120 +1,162 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hyperlush</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hyperlush</title>
 
-    <style>
-        body {
-            margin: 0;
-            background: #0a00db;
-            overflow: hidden;
-        }
-
-        canvas {
-            position: fixed;
-            top: 0;
-            left: 0;
-        }
-    </style>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #0a00db;
+      overflow: hidden;
+      height: 100%;
+      width: 100%;
+    }
+    canvas {
+      position: fixed;
+      inset: 0;
+      display: block;
+    }
+  </style>
 </head>
 <body>
+  <canvas id="rain"></canvas>
 
-<canvas id="rain"></canvas>
+  <script>
+    const canvas = document.getElementById("rain");
+    const ctx = canvas.getContext("2d", { alpha: true });
 
-<script>
-const canvas = document.getElementById("rain");
-const ctx = canvas.getContext("2d");
-
-// Ajustar al tamaño de la ventana
-function resize() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-}
-resize();
-window.addEventListener("resize", resize);
-
-// Crear partículas
-const drops = [];
-const total = 450;
-
-// Ajustes del brillo integrado en gotas
-const TWINKLE_CHANCE_PER_FRAME = 0.012; // más alto = más destellos (prueba 0.008–0.02)
-const TWINKLE_FRAMES_MIN = 6;
-const TWINKLE_FRAMES_MAX = 14;
-
-function createDrops() {
-    drops.length = 0;
-    for (let i = 0; i < total; i++) {
-        drops.push({
-            x: Math.random() * canvas.width,
-            y: Math.random() * canvas.height,
-            length: 6 + Math.random() * 10,  // ya lo tenías en 8–20, aquí un pelín más contenido
-            speed: 3 + Math.random() * 5,
-            w: 2,
-            twinkle: 0,       // frames restantes de brillo
-            twinkleMax: 0     // duración total del brillo para curva
-        });
+    function resize() {
+      const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+      canvas.width = Math.floor(window.innerWidth * dpr);
+      canvas.height = Math.floor(window.innerHeight * dpr);
+      canvas.style.width = window.innerWidth + "px";
+      canvas.style.height = window.innerHeight + "px";
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
-}
-createDrops();
 
-// Curva suave 0→1→0 para el brillo
-function pulse(t) {
-    return Math.sin(Math.PI * t);
-}
+    window.addEventListener("resize", resize);
+    resize();
 
-function rain() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const drops = [];
+    const TOTAL = 520;
 
-    drops.forEach(d => {
-        // Activar twinkle de forma aleatoria
-        if (d.twinkle <= 0 && Math.random() < TWINKLE_CHANCE_PER_FRAME) {
-            d.twinkleMax = TWINKLE_FRAMES_MIN + Math.floor(Math.random() * (TWINKLE_FRAMES_MAX - TWINKLE_FRAMES_MIN + 1));
-            d.twinkle = d.twinkleMax;
+    // Twinkle (más exagerado)
+    const TWINKLE_CHANCE_PER_FRAME = 0.02; // sube/baja para más/menos destellos
+    const TWINKLE_FRAMES_MIN = 8;
+    const TWINKLE_FRAMES_MAX = 18;
+
+    function rand(min, max) {
+      return min + Math.random() * (max - min);
+    }
+
+    function createDrops() {
+      drops.length = 0;
+      for (let i = 0; i < TOTAL; i++) {
+        drops.push({
+          x: Math.random() * window.innerWidth,
+          y: Math.random() * window.innerHeight,
+          len: rand(10, 26),
+          w: rand(1, 2.2),
+          speed: rand(3.2, 7.2),
+          // twinkle state
+          tw: 0,
+          twMax: 0,
+          // para que no todas brillen igual
+          hueShift: rand(-10, 20)
+        });
+      }
+    }
+    createDrops();
+
+    function pulse01(t) {
+      // 0->1->0 suave
+      return Math.sin(Math.PI * t);
+    }
+
+    function drawDrop(d) {
+      // Gota base: degradado (cabeza más brillante)
+      const grad = ctx.createLinearGradient(d.x, d.y, d.x, d.y + d.len);
+      grad.addColorStop(0, "rgba(255,255,255,0.95)");
+      grad.addColorStop(0.25, "rgba(255,255,255,0.55)");
+      grad.addColorStop(1, "rgba(255,255,255,0)");
+
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = grad;
+      ctx.fillRect(d.x, d.y, d.w, d.len);
+
+      // Twinkle: bloom + flash de color dentro de la gota
+      if (d.tw > 0) {
+        const life = (d.twMax - d.tw) / d.twMax; // 0..1
+        const p = pulse01(life);
+
+        // Intensidad exagerada
+        const glowAlpha = 0.25 + 0.75 * p;  // 0.25..1
+        const glowBlur = 6 + 18 * p;        // 6..24
+        const coreLen = Math.max(4, Math.floor(d.len * 0.35));
+        const coreY = d.y + Math.floor(d.len * 0.2);
+
+        // Glow (sombra) para que se vea claramente
+        ctx.save();
+        ctx.globalAlpha = glowAlpha;
+
+        // Ligeramente azulado, muy “Hyperlush”
+        ctx.shadowBlur = glowBlur;
+        ctx.shadowColor = `rgba(180, 210, 255, ${0.85 * glowAlpha})`;
+
+        ctx.fillStyle = `rgba(230, 245, 255, ${0.9})`;
+        ctx.fillRect(d.x - 1.2, coreY, d.w + 2.4, coreLen);
+
+        // Spark puntual (punto brillante) para hacerlo obvio
+        const sx = d.x + d.w * 0.5;
+        const sy = coreY + coreLen * 0.15;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 1.8 + 2.2 * p, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255,255,255,${0.85})`;
+        ctx.fill();
+
+        ctx.restore();
+
+        d.tw--;
+      }
+    }
+
+    function tick() {
+      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+
+      for (const d of drops) {
+        // Activar twinkle aleatorio
+        if (d.tw <= 0 && Math.random() < TWINKLE_CHANCE_PER_FRAME) {
+          d.twMax = Math.floor(rand(TWINKLE_FRAMES_MIN, TWINKLE_FRAMES_MAX));
+          d.tw = d.twMax;
         }
 
-        // Dibujar gota normal
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(d.x, d.y, d.w, d.length);
+        drawDrop(d);
 
-        // Si está en twinkle, “sustituimos” parte de la gota por un núcleo brillante
-        if (d.twinkle > 0) {
-            const life = (d.twinkleMax - d.twinkle) / d.twinkleMax; // 0..1
-            const a = 0.35 + 0.65 * pulse(life); // brillo fuerte pero corto
-
-            // Núcleo brillante corto dentro de la gota (no cae aparte, es la misma gota)
-            const coreLen = Math.max(3, Math.floor(d.length * (0.25 + Math.random() * 0.15)));
-            const coreY = d.y + Math.floor(d.length * 0.35);
-
-            ctx.globalAlpha = a;
-            // un pelín más grueso solo durante el destello
-            ctx.fillRect(d.x - 0.5, coreY, d.w + 1, coreLen);
-
-            d.twinkle--;
-            ctx.globalAlpha = 1;
-        }
-
-        // Movimiento
         d.y += d.speed;
-        if (d.y > canvas.height) {
-            d.y = -20;
-            d.x = Math.random() * canvas.width;
+
+        if (d.y > window.innerHeight + 30) {
+          d.y = -rand(10, 80);
+          d.x = Math.random() * window.innerWidth;
+          d.len = rand(10, 26);
+          d.w = rand(1, 2.2);
+          d.speed = rand(3.2, 7.2);
+          d.tw = 0;
+          d.twMax = 0;
         }
+      }
+
+      requestAnimationFrame(tick);
+    }
+
+    tick();
+
+    // Click para volver a home
+    document.addEventListener("click", () => {
+      window.location.href = "index.html";
     });
-
-    requestAnimationFrame(rain);
-}
-
-rain();
-
-// Click para volver a home
-document.addEventListener("click", () => {
-    window.location.href = "index.html";
-});
-</script>
-
+  </script>
 </body>
 </html>
