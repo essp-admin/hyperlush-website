@@ -20,7 +20,12 @@
       --hit: #000000;     /* color del bloque en el momento del golpe */
     }
 
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      touch-action: manipulation; /* en movil: sin zoom al dar dos toques rapidos */
+    }
 
     html, body {
       height: 100%;
@@ -774,6 +779,31 @@
       for (const [name] of ROWS) pattern[name].fill(0);
       paint();
     });
+
+    // ------------------------------------------------------------
+    // MOVIL: la pantalla no debe acercarse sola
+    // (Safari en iPhone hace zoom al dar dos toques rapidos o al pellizcar)
+    // ------------------------------------------------------------
+    const noZoom = (e) => { if (e.cancelable) e.preventDefault(); };
+
+    // Toques sobre el logo y sobre la rejilla: solo tocan, nunca hacen zoom
+    svg.addEventListener("touchstart", noZoom, { passive: false });
+    grid.addEventListener("touchstart", noZoom, { passive: false });
+
+    // Dos toques rapidos en cualquier otra parte (el fondo, por ejemplo).
+    // Los botones y enlaces se dejan en paz para que respondan siempre.
+    let lastTouchEnd = 0;
+    document.addEventListener("touchend", (e) => {
+      const now = Date.now();
+      const quick = now - lastTouchEnd < 400;
+      lastTouchEnd = now;
+      if (quick && !(e.target.closest && e.target.closest("button, a"))) noZoom(e);
+    }, { passive: false });
+
+    // Pellizcar con dos dedos (pasa sin querer al tocar dos pads a la vez)
+    document.addEventListener("gesturestart", noZoom);
+    document.addEventListener("gesturechange", noZoom);
+    document.addEventListener("dblclick", noZoom);
 
     // Si la persona cambia de pestana o bloquea el movil, el ritmo se para
     document.addEventListener("visibilitychange", () => { if (document.hidden && playing) stopSeq(); });
