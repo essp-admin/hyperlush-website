@@ -53,6 +53,187 @@
     const SPARK_FRAMES_MIN = 3;
     const SPARK_FRAMES_MAX = 7;
 
+    // ------------------------------------------------------------
+    // LOGO: la lluvia lo va formando
+    // ------------------------------------------------------------
+    const LOGO_DELAY   = 1.2;  // segundos de lluvia sola antes de empezar a formarse
+    const LOGO_SECONDS = 6;    // segundos que tarda en formarse (mas alto = mas lento)
+    const LOGO_WIDTH        = 0.34; // ancho del logo en ordenador (0.34 = 34 % de la pantalla)
+    const LOGO_WIDTH_MOBILE = 0.72; // ancho del logo en movil
+    // "pile":  las gotas se apilan desde abajo, como si llenaran el logo
+    // "stick": las gotas se quedan pegadas donde caen, el logo aparece entero poco a poco
+    const LOGO_STYLE = "pile";
+
+    // Capa donde se guardan los pixeles ya fijados del logo
+    const lbuf = document.createElement("canvas");
+    const lctx = lbuf.getContext("2d", { alpha: true });
+
+    let mask = null;      // 1 = ese pixel pertenece al logo
+    let fill = null;      // 0 = vacio, 1 = fijado
+    let colSegs = [];     // por columna: tramos verticales [arriba, abajo] del logo
+    let colLeft = [];     // por columna: pixeles del logo que faltan
+    let colAim = [];      // por columna: ultimo fotograma en que se le mando una gota
+    let frame = 0;
+    let logoX0 = 0, logoX1 = 0, logoTop = 0;
+    let logoTotal = 0, logoFilled = 0;
+    let logoDone = false, logoStart = 0;
+
+    function buildLogo() {
+      lbuf.width = W;
+      lbuf.height = H;
+      mask = new Uint8Array(W * H);
+      fill = new Uint8Array(W * H);
+      colSegs = new Array(W);
+      colLeft = new Array(W).fill(0);
+      colAim = new Array(W).fill(-999);
+      logoTotal = 0;
+      logoFilled = 0;
+
+      // Proporciones del logo original: 3 filas iguales; bloques laterales y bloque central
+      const frac = (W < 110) ? LOGO_WIDTH_MOBILE : LOGO_WIDTH;
+      const h = Math.max(2, Math.floor(Math.min((W * frac) / 7.714, (H * 0.45) / 3)));
+      const a = Math.round(h * 2.254); // ancho de cada bloque lateral
+      const b = Math.round(h * 3.206); // ancho del bloque central
+      const x0 = Math.floor((W - (2 * a + b)) / 2);
+      const y0 = Math.floor((H - 3 * h) / 2);
+
+      const rects = [
+        [0, 0, a], [a + b, 0, a],        // arriba izquierda y derecha
+        [a, h, b],                       // centro
+        [0, 2 * h, a], [a + b, 2 * h, a] // abajo izquierda y derecha
+      ];
+
+      for (const [rx, ry, rw] of rects) {
+        for (let x = x0 + rx; x < x0 + rx + rw; x++) {
+          if (x < 0 || x >= W) continue;
+          const top = y0 + ry, bottom = y0 + ry + h - 1;
+          if (top < 0 || bottom >= H) continue;
+          (colSegs[x] || (colSegs[x] = [])).push([top, bottom]);
+          for (let y = top; y <= bottom; y++) mask[y * W + x] = 1;
+          colLeft[x] += h;
+          logoTotal += h;
+        }
+      }
+
+      logoX0 = x0;
+      logoX1 = x0 + 2 * a + b - 1;
+      logoTop = y0;
+
+      if (logoDone) {
+        // Si ya estaba formado (por ejemplo al girar el movil), se queda formado
+        lctx.fillStyle = COLOR_MAIN;
+        for (const [rx, ry, rw] of rects) lctx.fillRect(x0 + rx, y0 + ry, rw, h);
+        fill.fill(1);
+        colLeft.fill(0);
+        logoFilled = logoTotal;
+      } else {
+        logoStart = performance.now();
+      }
+    }
+
+    function logoElapsed() {
+      return (performance.now() - logoStart) / 1000;
+    }
+
+    // Parte del logo que deberia estar formada en este momento (0..1)
+    function logoGoal() {
+      const p = (logoElapsed() - LOGO_DELAY) / LOGO_SECONDS;
+      if (p <= 0) return 0;
+      if (p >= 1) return 1;
+      return Math.pow(p, 1.5); // empieza despacio y coge ritmo
+    }
+
+    // Decide si esta gota se queda en el logo y en que pixel
+    function pickTarget(d, head, hurry) {
+      const segs = colSegs[d.x];
+      if (!segs || colLeft[d.x] <= 0) return -1;
+      if (!hurry && Math.random() > 0.7) return -1; // algunas gotas siguen de largo
+
+      const options = [];
+      for (const [top, bottom] of segs) {
+        if (bottom < head) continue;
+        if (LOGO_STYLE === "pile") {
+          // el pixel libre mas bajo de este tramo
+          for (let y = bottom; y >= Math.max(top, head); y--) {
+            if (!fill[y * W + d.x]) { options.push(y); break; }
+          }
+        } else {
+          for (let y = Math.max(top, head); y <= bottom; y++) {
+            if (!fill[y * W + d.x]) options.push(y);
+          }
+        }
+      }
+      if (!options.length) return -1;
+      return options[(Math.random() * options.length) | 0];
+    }
+
+    // La gota se queda fijada: sus pixeles pasan a formar parte del logo
+    // (siempre en blanco, sea cual sea el tono de la gota)
+    function land(d) {
+      lctx.fillStyle = COLOR_MAIN;
+      for (let y = d.target; y > d.target - d.len && y >= 0; y--) {
+        const i = y * W + d.x;
+        if (!mask[i] || fill[i]) continue;
+        fill[i] = 1;
+        lctx.fillRect(d.x, y, 1, 1);
+        colLeft[d.x]--;
+        logoFilled++;
+      }
+      if (logoFilled >= logoTotal) logoDone = true;
+    }
+
+    // Columna del logo a la que todavia le faltan pixeles (-1 si no hay).
+    // rested = solo columnas a las que no se ha mandado una gota hace un momento,
+    // para que no caiga un chorro seguido por la misma columna
+    function openColumn(rested) {
+      const ok = (x) => colLeft[x] > 0 && (!rested || frame - colAim[x] > 18);
+      for (let n = 0; n < 6; n++) {
+        const x = logoX0 + ((Math.random() * (logoX1 - logoX0 + 1)) | 0);
+        if (ok(x)) return x;
+      }
+      const from = logoX0 + ((Math.random() * (logoX1 - logoX0 + 1)) | 0);
+      for (let n = 0; n <= logoX1 - logoX0; n++) {
+        const x = logoX0 + ((from - logoX0 + n) % (logoX1 - logoX0 + 1));
+        if (ok(x)) return x;
+      }
+      return -1;
+    }
+
+    // Ultimos pixeles sueltos: si la lluvia tarda en acertarlos, aparecen solos
+    function popLast() {
+      let n = Math.max(1, Math.ceil((logoTotal - logoFilled) / 30));
+      lctx.fillStyle = COLOR_MAIN;
+      while (n-- > 0 && logoFilled < logoTotal) {
+        const x = openColumn(false);
+        if (x < 0) break;
+        const free = [];
+        for (const [top, bottom] of colSegs[x]) {
+          for (let y = top; y <= bottom; y++) if (!fill[y * W + x]) free.push(y);
+        }
+        const y = (LOGO_STYLE === "pile") ? free[free.length - 1] : free[(Math.random() * free.length) | 0];
+        fill[y * W + x] = 1;
+        lctx.fillRect(x, y, 1, 1);
+        colLeft[x]--;
+        logoFilled++;
+      }
+      if (logoFilled >= logoTotal) logoDone = true;
+    }
+
+    function respawn(d, hurry) {
+      d.y = -((Math.random() * 15) | 0);
+      d.x = (Math.random() * W) | 0;
+      if (hurry && Math.random() < 0.6) {
+        const x = openColumn(true);
+        if (x >= 0) { d.x = x; colAim[x] = frame; }
+      }
+      d.len = 2 + ((Math.random() * 6) | 0);
+      d.speed = 1 + ((Math.random() * 3) | 0);
+      d.bright = Math.random() < 0.35;
+      d.spark = 0;
+      d.sparkMax = 0;
+      d.target = -1;
+    }
+
     function resize() {
       canvas.width = Math.floor(window.innerWidth);
       canvas.height = Math.floor(window.innerHeight);
@@ -65,6 +246,7 @@
 
       // Rebuild drops según tamaño
       createDrops();
+      buildLogo();
     }
 
     function createDrops() {
@@ -81,7 +263,8 @@
           speed: 1 + (Math.random() * 3) | 0, // 1..3
           bright: Math.random() < 0.35,        // mezcla blanco/dim
           spark: 0,
-          sparkMax: 0
+          sparkMax: 0,
+          target: -1 // pixel del logo donde se queda (-1 = sigue de largo)
         });
       }
     }
@@ -123,6 +306,12 @@
       // Fondo sólido en buffer
       bctx.clearRect(0, 0, W, H);
 
+      // Logo: cuanto deberia llevar formado y si va con retraso
+      frame++;
+      const goal = logoDone ? 1 : logoGoal();
+      const building = !logoDone && goal > 0 && logoFilled < goal * logoTotal;
+      const hurry = building && (goal >= 1 || logoFilled < (goal - 0.03) * logoTotal);
+
       for (const d of drops) {
         // activar spark
         if (d.spark <= 0 && Math.random() < SPARK_CHANCE_PER_FRAME) {
@@ -135,17 +324,25 @@
         // mover
         d.y += d.speed;
 
-        // respawn
-        if (d.y > H + 10) {
-          d.y = -((Math.random() * 15) | 0);
-          d.x = (Math.random() * W) | 0;
-          d.len = 2 + ((Math.random() * 6) | 0);
-          d.speed = 1 + ((Math.random() * 3) | 0);
-          d.bright = Math.random() < 0.35;
-          d.spark = 0;
-          d.sparkMax = 0;
+        // logo: al llegar a su altura, la gota decide si se queda
+        const head = d.y + d.len - 1;
+        if (building && d.target < 0 && head >= logoTop && head - d.speed < logoTop && colSegs[d.x]) {
+          d.target = pickTarget(d, head, hurry);
         }
+        if (d.target >= 0 && head >= d.target) {
+          land(d);
+          respawn(d, hurry);
+          continue;
+        }
+
+        // respawn
+        if (d.y > H + 10) respawn(d, hurry);
       }
+
+      if (!logoDone && logoElapsed() > LOGO_DELAY + LOGO_SECONDS + 1.5) popLast();
+
+      // Pixeles ya fijados del logo, por encima de la lluvia
+      bctx.drawImage(lbuf, 0, 0);
 
       // Pintar buffer escalado a pantalla, sin suavizado
       ctx.imageSmoothingEnabled = false;
