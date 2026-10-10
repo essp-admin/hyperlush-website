@@ -44,7 +44,7 @@
     /* El logo es el instrumento: cada bloque es un pad */
     #pads {
       display: block;
-      width: min(88vw, 640px);
+      width: min(72vw, 480px); /* tamano del logo */
       height: auto;
       overflow: visible;
       touch-action: none; /* sin zoom ni desplazamiento al tocar rapido */
@@ -192,15 +192,19 @@
     @media (max-width: 700px) {
       #wanna { top: 26px; }
 
+      /* En movil se ven y suenan solo los 2 primeros tiempos (8 casillas),
+         para que cada casilla sea grande y facil de tocar */
       #grid {
-        --label: 46px;
+        --label: 54px;
         --cell-h: 40px;
-        --gap: 2px;
-        --beat: 2px;
+        --gap: 3px;
+        grid-template-columns: var(--label) repeat(4, 1fr) var(--beat) repeat(4, 1fr);
         width: min(96vw, 720px);
       }
 
-      #grid .label { font-size: 9px; letter-spacing: 0; }
+      #grid .second { display: none; }
+
+      #grid .label { font-size: 10px; letter-spacing: 0.5px; }
 
       .controls { margin-top: 26px; gap: 4px; }
       .back { bottom: 26px; }
@@ -249,7 +253,7 @@
     // Volumen general
     const MASTER = 0.8;
 
-    // Secuenciador: velocidad (16 pasos = un compas)
+    // Secuenciador: velocidad (16 pasos = un compas; en movil, 8 pasos = medio compas)
     const BPM = 124;
 
     // Ritmo que ya viene marcado al abrir el secuenciador (x = marcado, . = vacio).
@@ -578,6 +582,10 @@
     ];
     const STEPS = 16;
     const STEP_SEC = 60 / BPM / 4; // cada paso es una semicorchea
+    // En pantallas estrechas (movil) el bucle es de 8 pasos; en el resto, de 16.
+    // Debe coincidir con el "max-width: 700px" de los estilos.
+    const narrow = window.matchMedia("(max-width: 700px)");
+    const loopSteps = () => (narrow.matches ? STEPS / 2 : STEPS);
     const marks = (text) => Array.from({ length: STEPS }, (_, i) => (text[i] === "x" ? 1 : 0));
 
     const viewLogo = document.getElementById("viewLogo");
@@ -592,7 +600,7 @@
     // Numeros de los cuatro tiempos, encima de la rejilla
     for (let beat = 0; beat < STEPS / 4; beat++) {
       const n = document.createElement("div");
-      n.className = "num";
+      n.className = beat >= 2 ? "num second" : "num";
       n.textContent = beat + 1;
       n.style.setProperty("--p", beat * 4 + beat);
       grid.appendChild(n);
@@ -612,7 +620,7 @@
       for (let i = 0; i < STEPS; i++) {
         const c = document.createElement("button");
         c.type = "button";
-        c.className = "cell";
+        c.className = i >= STEPS / 2 ? "cell second" : "cell";
         c.dataset.sound = name;
         c.dataset.step = i;
         c.style.setProperty("--r", row);
@@ -645,15 +653,16 @@
     // Que casilla de esa fila queda bajo el dedo (-1 si ninguna)
     function stepAt(name, x) {
       const row = cells[name];
+      const n = loopSteps(); // solo las casillas que se ven
       const first = row[0].getBoundingClientRect();
-      const last = row[STEPS - 1].getBoundingClientRect();
+      const last = row[n - 1].getBoundingClientRect();
       if (x < first.left) return 0;
-      if (x > last.right) return STEPS - 1;
-      for (let i = 0; i < STEPS; i++) {
-        const next = i < STEPS - 1 ? row[i + 1].getBoundingClientRect().left : last.right;
+      if (x > last.right) return n - 1;
+      for (let i = 0; i < n; i++) {
+        const next = i < n - 1 ? row[i + 1].getBoundingClientRect().left : last.right;
         if (x < next) return i;
       }
-      return STEPS - 1;
+      return n - 1;
     }
 
     // Tocar una casilla la marca o la desmarca. Si se arrastra el dedo (o el raton)
@@ -691,10 +700,11 @@
       if (!ac) return;
       if (nextTime < ac.currentTime - 0.05) nextTime = ac.currentTime + 0.05; // si el navegador se atraso
       while (nextTime < ac.currentTime + 0.12) {
+        if (nextStep >= loopSteps()) nextStep = 0; // por si se gira el movil mientras suena
         for (const [name] of ROWS) if (pattern[name][nextStep]) play(name, nextTime);
         queue.push({ step: nextStep, time: nextTime });
         nextTime += STEP_SEC;
-        nextStep = (nextStep + 1) % STEPS;
+        nextStep = (nextStep + 1) % loopSteps();
       }
     }
 
