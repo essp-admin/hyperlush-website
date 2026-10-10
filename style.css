@@ -231,6 +231,19 @@ body.demo-page {
     border: 0;
 }
 
+/* Tamano del formulario de Tally: 1 = tamano original, 0.75 = tres cuartos.
+   Cambia solo este numero para hacerlo mas grande o mas pequeno. */
+.demo-form .tally-scale {
+    --form-scale: 0.75;
+    overflow: hidden;
+}
+
+.demo-form .tally-scale iframe {
+    width: calc(100% / var(--form-scale));
+    transform: scale(var(--form-scale));
+    transform-origin: 0 0;
+}
+
 .demo-form .dashed {
     margin: 30px -40px;
 }
