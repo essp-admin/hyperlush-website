@@ -214,6 +214,46 @@
       .controls { margin-top: 26px; gap: 4px; }
       .back { bottom: 26px; }
     }
+
+    /* Pantallas bajas (movil tumbado): todo se ajusta a la altura para que quepa entero.
+       El texto de abajo queda por encima de la barra de inicio del iPhone. */
+    @media (max-height: 520px) {
+      #pads { width: min(72vw, 480px, calc((100vh - 150px) * 2.57)); }
+      #wanna { top: 12px; }
+
+      body.seq-open { justify-content: flex-start; padding-top: 6px; }
+
+      #grid { --cell-h: clamp(20px, calc((100vh - 124px) / 5), 44px); }
+      #grid .num { padding-bottom: 0; line-height: 12px; }
+
+      .controls { margin-top: 8px; }
+      .controls .text-btn { padding: 7px 14px; }
+      #playBtn { padding: 7px 18px; }
+
+      .back { bottom: 20px; }
+      .back a { padding: 4px 14px; }
+    }
+
+    @supports (height: 100dvh) {
+      /* Pantallas bajas (movil tumbado): todo se ajusta a la altura para que quepa entero.
+         El texto de abajo queda por encima de la barra de inicio del iPhone. */
+      @media (max-height: 520px) {
+        #pads { width: min(72vw, 480px, calc((100dvh - 150px) * 2.57)); }
+        #wanna { top: 12px; }
+
+        body.seq-open { justify-content: flex-start; padding-top: 6px; }
+
+        #grid { --cell-h: clamp(20px, calc((100dvh - 124px) / 5), 44px); }
+        #grid .num { padding-bottom: 0; line-height: 12px; }
+
+        .controls { margin-top: 8px; }
+        .controls .text-btn { padding: 7px 14px; }
+        #playBtn { padding: 7px 18px; }
+
+        .back { bottom: 20px; }
+        .back a { padding: 4px 14px; }
+      }
+    }
   </style>
 </head>
 
@@ -468,6 +508,8 @@
       master.gain.value = MASTER;
       master.connect(limiter).connect(ac.destination);
 
+      ac.onstatechange = flushPending; // en cuanto el navegador active el audio
+
       loadSamples();
     }
 
@@ -486,11 +528,50 @@
       }
     }
 
+    // El navegador no deja sonar nada hasta el primer gesto de la persona, y en
+    // iPhone ese gesto no cuenta al apoyar el dedo sino al levantarlo. Por eso los
+    // golpes dados antes de que el audio este activo se guardan aqui y suenan en
+    // cuanto se activa (una fraccion de segundo despues), en vez de perderse.
+    let pending = [];
+
+    function flushPending() {
+      if (!ac || ac.state !== "running" || !pending.length) return;
+      const now = Date.now();
+      const names = new Set(pending.filter((p) => now - p.at < 1500).map((p) => p.name));
+      pending = [];
+      names.forEach((name) => play(name));
+    }
+
+    // Se llama en cada gesto que el navegador acepta para activar el audio
+    function unlock() {
+      setupAudio();
+      if (!ac) return;
+      if (ac.state === "running") { flushPending(); return; }
+      try {
+        // truco clasico de iPhone: un sonido vacio dentro del gesto
+        const silent = ac.createBufferSource();
+        silent.buffer = ac.createBuffer(1, 1, ac.sampleRate);
+        silent.connect(ac.destination);
+        silent.start(0);
+      } catch (e) {}
+      const p = ac.resume();
+      if (p && p.then) p.then(flushPending).catch(() => {});
+    }
+
+    ["pointerup", "touchend", "mouseup", "click", "keydown"].forEach((type) => {
+      document.addEventListener(type, unlock, true);
+    });
+
     // when = momento exacto en que debe sonar (si no se indica, ahora)
     function play(name, when) {
       setupAudio();
       if (!ac) return;
-      if (ac.state !== "running") ac.resume();
+      if (ac.state !== "running") {
+        const p = ac.resume();
+        if (p && p.catch) p.catch(() => {});
+        if (when === undefined) pending.push({ name: name, at: Date.now() });
+        return; // sonara en cuanto el audio este activo
+      }
 
       const t = when || ac.currentTime;
       const out = ac.createGain();
@@ -703,6 +784,7 @@
 
     function schedule() {
       if (!ac) return;
+      if (ac.state !== "running") { nextTime = ac.currentTime + 0.06; return; } // aun sin audio
       if (nextTime < ac.currentTime - 0.05) nextTime = ac.currentTime + 0.05; // si el navegador se atraso
       while (nextTime < ac.currentTime + 0.12) {
         if (nextStep >= loopSteps()) nextStep = 0; // por si se gira el movil mientras suena
